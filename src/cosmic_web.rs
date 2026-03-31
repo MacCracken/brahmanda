@@ -247,18 +247,24 @@ pub const DELTA_V: f64 = -2.717;
 /// # Arguments
 /// * `r_mpc` — Void radius in Mpc/h.
 /// * `z` — Redshift.
+/// * `cosmo` — Cosmological parameters.
 ///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::cosmic_web::void_abundance_svdw;
 ///
-/// let n = void_abundance_svdw(10.0, 0.0).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let n = void_abundance_svdw(10.0, 0.0, &cosmo).unwrap();
 /// assert!(n > 0.0, "void abundance should be positive");
 ///
-/// // Larger voids are rarer
-/// let n_big = void_abundance_svdw(30.0, 0.0).unwrap();
+/// let n_big = void_abundance_svdw(30.0, 0.0, &cosmo).unwrap();
 /// assert!(n_big < n);
 /// ```
-pub fn void_abundance_svdw(r_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
+pub fn void_abundance_svdw(
+    r_mpc: f64,
+    z: f64,
+    cosmo: &crate::cosmology::Cosmology,
+) -> Result<f64, BrahmandaError> {
     require_finite(r_mpc, "void_abundance_svdw")?;
     require_finite(z, "void_abundance_svdw")?;
     if r_mpc <= 0.0 {
@@ -267,7 +273,7 @@ pub fn void_abundance_svdw(r_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
         ));
     }
 
-    let sigma = crate::power_spectrum::sigma_r(r_mpc, z)?;
+    let sigma = crate::power_spectrum::sigma_r(r_mpc, z, cosmo)?;
     let s = sigma * sigma;
     let delta_c = crate::halo::DELTA_C;
     let dv = DELTA_V.abs();
@@ -275,9 +281,7 @@ pub fn void_abundance_svdw(r_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
     // First-crossing for void barrier (Gaussian)
     let f_void = dv / (2.0 * std::f64::consts::PI * s).sqrt() * (-dv * dv / (2.0 * s)).exp();
 
-    // Void-in-cloud suppression: fraction of voids NOT embedded in a
-    // collapsing region. The suppression factor is approximately
-    // exp(-δ_c² / (2S)), the probability the trajectory stays below δ_c.
+    // Void-in-cloud suppression
     let vic_suppression = (-delta_c * delta_c / (2.0 * s)).exp();
 
     ensure_finite(f_void * vic_suppression, "void_abundance_svdw")
@@ -594,23 +598,26 @@ mod tests {
 
     #[test]
     fn test_void_abundance_positive() {
-        let n = void_abundance_svdw(10.0, 0.0).unwrap();
+        let cosmo = crate::Cosmology::planck2018();
+        let n = void_abundance_svdw(10.0, 0.0, &cosmo).unwrap();
         assert!(n > 0.0, "void abundance should be positive: {n}");
     }
 
     #[test]
     fn test_void_abundance_decreases_with_size() {
-        let n1 = void_abundance_svdw(5.0, 0.0).unwrap();
-        let n2 = void_abundance_svdw(15.0, 0.0).unwrap();
-        let n3 = void_abundance_svdw(30.0, 0.0).unwrap();
+        let cosmo = crate::Cosmology::planck2018();
+        let n1 = void_abundance_svdw(5.0, 0.0, &cosmo).unwrap();
+        let n2 = void_abundance_svdw(15.0, 0.0, &cosmo).unwrap();
+        let n3 = void_abundance_svdw(30.0, 0.0, &cosmo).unwrap();
         assert!(n1 > n2 && n2 > n3, "larger voids should be rarer");
     }
 
     #[test]
     fn test_void_abundance_invalid() {
-        assert!(void_abundance_svdw(0.0, 0.0).is_err());
-        assert!(void_abundance_svdw(-1.0, 0.0).is_err());
-        assert!(void_abundance_svdw(f64::NAN, 0.0).is_err());
+        let cosmo = crate::Cosmology::planck2018();
+        assert!(void_abundance_svdw(0.0, 0.0, &cosmo).is_err());
+        assert!(void_abundance_svdw(-1.0, 0.0, &cosmo).is_err());
+        assert!(void_abundance_svdw(f64::NAN, 0.0, &cosmo).is_err());
     }
 
     // -- hessian morphology --

@@ -31,16 +31,18 @@
 //! # Example
 //!
 //! ```
+//! use brahmanda::Cosmology;
 //! use brahmanda::halo::HaloProperties;
 //!
-//! // Milky Way-mass dark matter halo
-//! let halo = HaloProperties::from_mass(1e12).unwrap();
+//! let cosmo = Cosmology::planck2018();
+//! let halo = HaloProperties::from_mass(1e12, &cosmo).unwrap();
 //! assert!(halo.r_vir_kpc > 150.0 && halo.r_vir_kpc < 350.0);
 //! assert!(halo.concentration > 5.0 && halo.concentration < 15.0);
 //! ```
 
 pub mod constants;
 pub mod cosmic_web;
+pub mod cosmology;
 pub mod error;
 pub mod halo;
 pub mod morphology;
@@ -49,4 +51,5 @@ pub mod power_spectrum;
 #[cfg(feature = "logging")]
 pub mod logging;
 
+pub use cosmology::{Cosmology, FilterFunction};
 pub use error::BrahmandaError;

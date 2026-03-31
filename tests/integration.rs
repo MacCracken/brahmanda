@@ -1,33 +1,36 @@
 //! Cross-module integration tests.
 
+use brahmanda::Cosmology;
 use brahmanda::cosmic_web::{self, WebEnvironment};
 use brahmanda::halo::{self, HaloProperties};
 use brahmanda::morphology::{self, GalaxyProperties, HubbleType};
 use brahmanda::power_spectrum;
 
+fn cosmo() -> Cosmology {
+    Cosmology::planck2018()
+}
+
 #[test]
 fn test_milky_way_halo_and_galaxy() {
-    // MW halo: ~10¹² M_sun
-    let halo = halo::HaloProperties::from_mass(1e12).unwrap();
+    let c = cosmo();
+    let halo = halo::HaloProperties::from_mass(1e12, &c).unwrap();
     assert!(halo.r_vir_kpc > 150.0 && halo.r_vir_kpc < 350.0);
 
-    // NFW velocity curve should be reasonable at ~8 kpc (solar radius)
-    let rho_s = 1e7; // typical characteristic density
+    let rho_s = 1e7;
     let v = halo::nfw_circular_velocity(8.0, rho_s, halo.r_s_kpc).unwrap();
     assert!(v > 50.0 && v < 500.0, "v_c at 8 kpc: {v} km/s");
 }
 
 #[test]
 fn test_structure_formation_consistency() {
-    // Growth factor decreases at higher z → σ decreases → fewer structures
-    let sigma_0 = power_spectrum::sigma_r(8.0, 0.0).unwrap();
-    let sigma_2 = power_spectrum::sigma_r(8.0, 2.0).unwrap();
+    let c = cosmo();
+    let sigma_0 = power_spectrum::sigma_r(8.0, 0.0, &c).unwrap();
+    let sigma_2 = power_spectrum::sigma_r(8.0, 2.0, &c).unwrap();
     assert!(sigma_0 > sigma_2, "less structure at high z");
 }
 
 #[test]
 fn test_cosmic_web_overdense_is_node() {
-    // In a node: all eigenvalues positive → density contrast >> 0
     let env = cosmic_web::classify_web_environment(&[2.0, 1.5, 0.5], 0.0).unwrap();
     assert_eq!(env, cosmic_web::WebEnvironment::Node);
 
@@ -37,10 +40,8 @@ fn test_cosmic_web_overdense_is_node() {
 
 #[test]
 fn test_sersic_elliptical_vs_spiral() {
-    // n=4 (elliptical) drops off faster in center than n=1 (exponential disk)
     let i_elliptical = morphology::sersic_profile(0.1, 1.0, 4.0).unwrap();
     let i_spiral = morphology::sersic_profile(0.1, 1.0, 1.0).unwrap();
-    // At R < R_e, elliptical (n=4) has steeper central concentration
     assert!(i_elliptical > i_spiral, "elliptical brighter in center");
 }
 
@@ -74,9 +75,7 @@ mod adversarial {
 
     #[test]
     fn sersic_r_zero_ok() {
-        // r=0 is a valid evaluation point (center of galaxy)
         let result = morphology::sersic_profile(0.0, 1.0, 4.0);
-        // May succeed or fail depending on 0^(1/n), but must not panic
         let _ = result;
     }
 
@@ -143,26 +142,29 @@ mod adversarial {
 
     #[test]
     fn virial_radius_nan_inf() {
+        let c = cosmo();
         for &bad in &POISON {
-            assert!(halo::virial_radius(bad).is_err());
+            assert!(halo::virial_radius(bad, &c).is_err());
         }
-        assert!(halo::virial_radius(0.0).is_err());
-        assert!(halo::virial_radius(-1e12).is_err());
+        assert!(halo::virial_radius(0.0, &c).is_err());
+        assert!(halo::virial_radius(-1e12, &c).is_err());
     }
 
     #[test]
     fn concentration_nan_inf() {
+        let c = cosmo();
         for &bad in &POISON {
-            assert!(halo::concentration_dutton_maccio(bad).is_err());
+            assert!(halo::concentration_dutton_maccio(bad, &c).is_err());
         }
-        assert!(halo::concentration_dutton_maccio(0.0).is_err());
-        assert!(halo::concentration_dutton_maccio(-1e12).is_err());
+        assert!(halo::concentration_dutton_maccio(0.0, &c).is_err());
+        assert!(halo::concentration_dutton_maccio(-1e12, &c).is_err());
     }
 
     #[test]
     fn halo_properties_nan_inf() {
+        let c = cosmo();
         for &bad in &POISON {
-            assert!(HaloProperties::from_mass(bad).is_err());
+            assert!(HaloProperties::from_mass(bad, &c).is_err());
         }
     }
 
@@ -226,70 +228,67 @@ mod adversarial {
 
     #[test]
     fn primordial_power_nan_inf() {
+        let c = cosmo();
         for &bad in &POISON {
-            assert!(power_spectrum::primordial_power(bad, 0.965).is_err());
-            assert!(power_spectrum::primordial_power(0.1, bad).is_err());
+            assert!(power_spectrum::primordial_power(bad, &c).is_err());
         }
-        assert!(power_spectrum::primordial_power(0.0, 0.965).is_err());
-        assert!(power_spectrum::primordial_power(-1.0, 0.965).is_err());
+        assert!(power_spectrum::primordial_power(0.0, &c).is_err());
+        assert!(power_spectrum::primordial_power(-1.0, &c).is_err());
     }
 
     #[test]
     fn growth_factor_nan_inf() {
+        let c = cosmo();
         for &bad in &POISON {
-            assert!(power_spectrum::growth_factor(bad, 0.315).is_err());
-            assert!(power_spectrum::growth_factor(0.0, bad).is_err());
+            assert!(power_spectrum::growth_factor(bad, &c).is_err());
         }
-        // z < -1 is unphysical
-        assert!(power_spectrum::growth_factor(-2.0, 0.315).is_err());
+        assert!(power_spectrum::growth_factor(-2.0, &c).is_err());
     }
 
     #[test]
     fn sigma_r_nan_inf() {
+        let c = cosmo();
         for &bad in &POISON {
-            assert!(power_spectrum::sigma_r(bad, 0.0).is_err());
+            assert!(power_spectrum::sigma_r(bad, 0.0, &c).is_err());
         }
-        assert!(power_spectrum::sigma_r(0.0, 0.0).is_err());
-        assert!(power_spectrum::sigma_r(-1.0, 0.0).is_err());
+        assert!(power_spectrum::sigma_r(0.0, 0.0, &c).is_err());
+        assert!(power_spectrum::sigma_r(-1.0, 0.0, &c).is_err());
     }
 
     // -- extreme but valid inputs --
 
     #[test]
     fn extreme_halo_masses() {
-        // Dwarf galaxy halo (~10⁸ M_sun)
-        let dwarf = HaloProperties::from_mass(1e8).unwrap();
+        let c = cosmo();
+        let dwarf = HaloProperties::from_mass(1e8, &c).unwrap();
         assert!(dwarf.r_vir_kpc > 0.0);
         assert!(dwarf.concentration > 0.0);
 
-        // Galaxy cluster (~10¹⁵ M_sun)
-        let cluster = HaloProperties::from_mass(1e15).unwrap();
+        let cluster = HaloProperties::from_mass(1e15, &c).unwrap();
         assert!(cluster.r_vir_kpc > dwarf.r_vir_kpc);
         assert!(cluster.concentration > 0.0);
     }
 
     #[test]
     fn extreme_sersic_indices() {
-        // Very low n (near-exponential)
         let i_low = morphology::sersic_profile(1.0, 1.0, 0.5).unwrap();
         assert!(i_low.is_finite());
 
-        // Very high n (extreme concentration)
         let i_high = morphology::sersic_profile(1.0, 1.0, 10.0).unwrap();
         assert!(i_high.is_finite());
     }
 
     #[test]
     fn growth_factor_boundary() {
-        // z = -1 is the boundary (a → ∞)
-        let d = power_spectrum::growth_factor(-1.0, 0.315);
-        // May succeed or fail, but must not panic
+        let c = cosmo();
+        let d = power_spectrum::growth_factor(-1.0, &c);
         let _ = d;
     }
 
     #[test]
     fn very_high_redshift() {
-        let d = power_spectrum::growth_factor(100.0, 0.315).unwrap();
+        let c = cosmo();
+        let d = power_spectrum::growth_factor(100.0, &c).unwrap();
         assert!(d > 0.0 && d < 0.1, "growth factor at z=100: {d}");
     }
 }
@@ -352,13 +351,22 @@ mod serde_roundtrip {
 
     #[test]
     fn halo_properties_roundtrip() {
-        let halo = HaloProperties::from_mass(1e12).unwrap();
+        let c = cosmo();
+        let halo = HaloProperties::from_mass(1e12, &c).unwrap();
         let json = serde_json::to_string(&halo).unwrap();
         let back: HaloProperties = serde_json::from_str(&json).unwrap();
         assert!((back.m_vir_msun - halo.m_vir_msun).abs() < 1.0);
         assert!((back.r_vir_kpc - halo.r_vir_kpc).abs() < 1e-6);
         assert!((back.r_s_kpc - halo.r_s_kpc).abs() < 1e-6);
         assert!((back.concentration - halo.concentration).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cosmology_roundtrip() {
+        let c = cosmo();
+        let json = serde_json::to_string(&c).unwrap();
+        let back: Cosmology = serde_json::from_str(&json).unwrap();
+        assert_eq!(c, back);
     }
 }
 
@@ -413,10 +421,11 @@ mod physical_invariants {
 
     #[test]
     fn growth_factor_monotonically_decreasing_with_z() {
+        let c = cosmo();
         let redshifts = [0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0];
         let growths: Vec<f64> = redshifts
             .iter()
-            .map(|&z| power_spectrum::growth_factor(z, 0.315).unwrap())
+            .map(|&z| power_spectrum::growth_factor(z, &c).unwrap())
             .collect();
         for i in 1..growths.len() {
             assert!(
@@ -432,34 +441,34 @@ mod physical_invariants {
 
     #[test]
     fn growth_factor_bounded() {
-        // D(z=0) = 1 by normalization
-        let d0 = power_spectrum::growth_factor(0.0, 0.315).unwrap();
+        let c = cosmo();
+        let d0 = power_spectrum::growth_factor(0.0, &c).unwrap();
         assert!((d0 - 1.0).abs() < 1e-10);
 
-        // D(z) should always be positive
         for z in [0.0, 1.0, 10.0, 100.0] {
-            let d = power_spectrum::growth_factor(z, 0.315).unwrap();
+            let d = power_spectrum::growth_factor(z, &c).unwrap();
             assert!(d > 0.0, "growth factor negative at z={z}: {d}");
         }
     }
 
     #[test]
     fn sigma_r_scales_with_radius() {
-        // Smaller spheres → larger fluctuations (more structure on small scales)
-        let s_small = power_spectrum::sigma_r(2.0, 0.0).unwrap();
-        let s_8 = power_spectrum::sigma_r(8.0, 0.0).unwrap();
-        let s_large = power_spectrum::sigma_r(32.0, 0.0).unwrap();
+        let c = cosmo();
+        let s_small = power_spectrum::sigma_r(2.0, 0.0, &c).unwrap();
+        let s_8 = power_spectrum::sigma_r(8.0, 0.0, &c).unwrap();
+        let s_large = power_spectrum::sigma_r(32.0, 0.0, &c).unwrap();
         assert!(s_small > s_8, "σ(2) > σ(8)");
         assert!(s_8 > s_large, "σ(8) > σ(32)");
     }
 
     #[test]
     fn sigma_r_decreases_with_redshift() {
+        let c = cosmo();
         let radii = [2.0, 8.0, 32.0];
         for &r in &radii {
-            let s0 = power_spectrum::sigma_r(r, 0.0).unwrap();
-            let s1 = power_spectrum::sigma_r(r, 1.0).unwrap();
-            let s3 = power_spectrum::sigma_r(r, 3.0).unwrap();
+            let s0 = power_spectrum::sigma_r(r, 0.0, &c).unwrap();
+            let s1 = power_spectrum::sigma_r(r, 1.0, &c).unwrap();
+            let s3 = power_spectrum::sigma_r(r, 3.0, &c).unwrap();
             assert!(s0 > s1, "σ({r}, z=0) > σ({r}, z=1)");
             assert!(s1 > s3, "σ({r}, z=1) > σ({r}, z=3)");
         }
@@ -467,10 +476,11 @@ mod physical_invariants {
 
     #[test]
     fn virial_radius_increases_with_mass() {
+        let c = cosmo();
         let masses = [1e8, 1e10, 1e12, 1e14, 1e15];
         let radii: Vec<f64> = masses
             .iter()
-            .map(|&m| halo::virial_radius(m).unwrap())
+            .map(|&m| halo::virial_radius(m, &c).unwrap())
             .collect();
         for i in 1..radii.len() {
             assert!(
@@ -486,11 +496,11 @@ mod physical_invariants {
 
     #[test]
     fn concentration_decreases_with_mass() {
-        // More massive halos form later → lower concentration
+        let c = cosmo();
         let masses = [1e10, 1e12, 1e14, 1e15];
         let concs: Vec<f64> = masses
             .iter()
-            .map(|&m| halo::concentration_dutton_maccio(m).unwrap())
+            .map(|&m| halo::concentration_dutton_maccio(m, &c).unwrap())
             .collect();
         for i in 1..concs.len() {
             assert!(
@@ -506,7 +516,6 @@ mod physical_invariants {
 
     #[test]
     fn sersic_profile_at_r_e_is_unity() {
-        // For any valid n, I(R_e)/I_e should be ~1
         for n in [0.5, 1.0, 2.0, 4.0, 8.0] {
             let i = morphology::sersic_profile(10.0, 10.0, n).unwrap();
             assert!(
@@ -518,7 +527,6 @@ mod physical_invariants {
 
     #[test]
     fn transfer_function_bounded() {
-        // T(k) should be in (0, 1] for physical k
         let ks = [0.001, 0.01, 0.1, 1.0, 10.0];
         for &k in &ks {
             let t = power_spectrum::transfer_function_eh(k, 0.315, 0.049, 0.674).unwrap();
@@ -528,7 +536,6 @@ mod physical_invariants {
 
     #[test]
     fn correlation_function_at_r0_is_unity() {
-        // ξ(r₀) = (r₀/r₀)^γ = 1 for any γ
         for gamma in [1.0, 1.5, 1.8, 2.0, 3.0] {
             let xi = cosmic_web::two_point_correlation_power_law(5.0, 5.0, gamma).unwrap();
             assert!((xi - 1.0).abs() < 1e-10, "ξ(r₀) for γ={gamma}: {xi}");
@@ -537,7 +544,6 @@ mod physical_invariants {
 
     #[test]
     fn void_radius_scales_as_cube_root() {
-        // R ∝ V^(1/3), so doubling V → R * 2^(1/3) ≈ R * 1.2599
         let r1 = cosmic_web::void_radius_mpc(1000.0).unwrap();
         let r2 = cosmic_web::void_radius_mpc(2000.0).unwrap();
         let ratio = r2 / r1;
@@ -550,8 +556,8 @@ mod physical_invariants {
 
     #[test]
     fn comoving_distance_planck_z1() {
-        // Planck 2018 ΛCDM: χ(z=1) ≈ 3364 Mpc (within ~5%)
-        let chi = power_spectrum::comoving_distance(1.0, 0.315, -1.0, 0.0).unwrap();
+        let c = cosmo();
+        let chi = power_spectrum::comoving_distance(1.0, &c).unwrap();
         assert!(
             (chi - 3364.0).abs() / 3364.0 < 0.05,
             "χ(z=1) = {chi}, expected ~3364 Mpc"
@@ -560,8 +566,8 @@ mod physical_invariants {
 
     #[test]
     fn luminosity_distance_z1() {
-        // d_L(z=1) = (1+z) × χ(z=1) ≈ 6728 Mpc
-        let dl = power_spectrum::luminosity_distance(1.0, 0.315, -1.0, 0.0).unwrap();
+        let c = cosmo();
+        let dl = power_spectrum::luminosity_distance(1.0, &c).unwrap();
         assert!(
             (dl - 6728.0).abs() / 6728.0 < 0.05,
             "d_L(z=1) = {dl}, expected ~6728 Mpc"
@@ -570,12 +576,11 @@ mod physical_invariants {
 
     #[test]
     fn nfw_circular_velocity_mw() {
-        // MW at solar radius (~8 kpc): v_c ≈ 220 km/s for typical ρ_s, r_s
-        let halo = halo::HaloProperties::from_mass(1e12).unwrap();
-        // Estimate ρ_s from virial mass: M_vir = 4π ρ_s r_s³ [ln(1+c) - c/(1+c)]
-        let c = halo.concentration;
+        let c = cosmo();
+        let halo = halo::HaloProperties::from_mass(1e12, &c).unwrap();
+        let conc = halo.concentration;
         let r_s = halo.r_s_kpc;
-        let g_c = (1.0 + c).ln() - c / (1.0 + c);
+        let g_c = (1.0 + conc).ln() - conc / (1.0 + conc);
         let rho_s = halo.m_vir_msun / (4.0 * std::f64::consts::PI * r_s.powi(3) * g_c);
         let v = halo::nfw_circular_velocity(8.0, rho_s, r_s).unwrap();
         assert!(
@@ -586,14 +591,13 @@ mod physical_invariants {
 
     #[test]
     fn press_schechter_value_range() {
-        // At M=10^12 M_sun, z=0: dn/dlnM should be ~10^-4 to 10^-2 h³/Mpc³
-        let n = halo::press_schechter_dndlnm(1e12, 0.0).unwrap();
+        let c = cosmo();
+        let n = halo::press_schechter_dndlnm(1e12, 0.0, &c).unwrap();
         assert!(n > 1e-6 && n < 1.0, "PS dn/dlnM(10^12, z=0) = {n}");
     }
 
     #[test]
     fn sfr_density_z0_value() {
-        // ρ_SFR(z=0) ≈ 0.015 M_sun/yr/Mpc³ (Madau & Dickinson 2014, Eq. 15)
         let sfr = morphology::sfr_density_madau_dickinson(0.0).unwrap();
         assert!(
             (sfr - 0.015).abs() / 0.015 < 0.3,

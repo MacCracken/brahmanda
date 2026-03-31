@@ -1,10 +1,12 @@
 //! Basic brahmanda usage — halos, galaxies, cosmic web.
 
-use brahmanda::{cosmic_web, halo, morphology, power_spectrum};
+use brahmanda::{Cosmology, cosmic_web, halo, morphology, power_spectrum};
 
 fn main() {
+    let cosmo = Cosmology::planck2018();
+
     // Dark matter halo for a Milky Way-mass galaxy
-    let mw = halo::HaloProperties::from_mass(1e12).unwrap();
+    let mw = halo::HaloProperties::from_mass(1e12, &cosmo).unwrap();
     println!("Milky Way dark matter halo:");
     println!("  Virial mass:   1e12 M_sun");
     println!("  Virial radius: {:.0} kpc", mw.r_vir_kpc);
@@ -25,7 +27,7 @@ fn main() {
     // Structure growth
     println!("\nGrowth factor D(z)/D(0):");
     for z in [0.0, 0.5, 1.0, 2.0, 5.0] {
-        let d = power_spectrum::growth_factor(z, 0.315).unwrap();
+        let d = power_spectrum::growth_factor(z, &cosmo).unwrap();
         println!("  z={z:.1}: D = {d:.4}");
     }
 }

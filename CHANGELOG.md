@@ -4,6 +4,10 @@
 
 ### Added
 
+- **`Cosmology` struct** — central parameter object with presets (`planck2018()`, `wmap9()`)
+- **`FilterFunction` enum** — TopHat, Gaussian, SharpK window functions for σ(R)
+- **`linear_power_spectrum(k, z, cosmo)`** — properly σ₈-normalized matter power spectrum
+- **`sigma_r_filter(r, z, cosmo, filter)`** — exact σ(R) with configurable window function
 - `angular_diameter_distance` — d_A(z) = χ(z)/(1+z)
 - `comoving_volume_element` — dV/(dz dΩ) for survey volume calculations
 - `lookback_time` — time elapsed since redshift z (Gyr)
@@ -15,15 +19,17 @@
 - `PartialEq` derives for `GalaxyProperties` and `HaloProperties`
 - GitHub Actions CI workflow (fmt, clippy, test, deny, MSRV check)
 - Benchmark runner script (`scripts/bench-history.sh`)
-- Comprehensive test coverage: 243 tests (unit, integration, doc)
+- 267 tests (140 unit + 56 integration + 71 doc)
 
 ### Changed
 
-- **BREAKING**: Version bump from 0.1.0 to 1.0.0 (stable API)
-- Constants doc comments now cite specific sources (Planck 2018 TT,TE,EE+lowE+lensing, CODATA 2018, IAU)
-- `classify_hessian_morphology` eigenvalue sort uses `total_cmp()` instead of `partial_cmp().unwrap()` for NaN safety
-- `classify_hessian_morphology` eigenvalue sort uses fixed-size array instead of `Vec` allocation
-- `sigma_r` documentation clarifies power-law approximation limitations
+- **BREAKING**: All public functions now take `&Cosmology` instead of individual cosmological parameters
+- **BREAKING**: `sigma_r` now uses exact adaptive Simpson integration of P(k)·W²(kR) instead of power-law approximation
+- **BREAKING**: `constants.rs` no longer exports cosmological parameters (Ω_m, σ₈, etc.) — use `Cosmology` struct
+- `hubble_parameter_ratio` now includes radiation density Ω_r(1+z)⁴ and curvature Ω_k(1+z)²
+- Mass function dlnσ/dlnM computed via exact finite-difference of σ(R) instead of power-law
+- `power_spectrum_amplitude()` cached via `OnceLock` for A_s normalization (computed once per Cosmology)
+- `classify_hessian_morphology` eigenvalue sort uses `total_cmp()` and fixed-size array
 
 ### Fixed
 

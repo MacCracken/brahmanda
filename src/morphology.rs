@@ -232,14 +232,19 @@ pub fn sfr_density_madau_dickinson(z: f64) -> Result<f64, BrahmandaError> {
 /// Returns stellar mass density in M_sun Mpc⁻³.
 ///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::morphology::stellar_mass_density;
 ///
-/// let rho_0 = stellar_mass_density(0.0).unwrap();
-/// let rho_2 = stellar_mass_density(2.0).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let rho_0 = stellar_mass_density(0.0, &cosmo).unwrap();
+/// let rho_2 = stellar_mass_density(2.0, &cosmo).unwrap();
 /// assert!(rho_0 > rho_2, "more stars at z=0 than z=2");
 /// assert!(rho_0 > 1e7, "ρ*(z=0) should be substantial");
 /// ```
-pub fn stellar_mass_density(z: f64) -> Result<f64, BrahmandaError> {
+pub fn stellar_mass_density(
+    z: f64,
+    cosmo: &crate::cosmology::Cosmology,
+) -> Result<f64, BrahmandaError> {
     require_finite(z, "stellar_mass_density")?;
     if z < 0.0 {
         return Err(BrahmandaError::InvalidGalaxy(
@@ -256,9 +261,7 @@ pub fn stellar_mass_density(z: f64) -> Result<f64, BrahmandaError> {
     let dz = (z_max - z) / n as f64;
     let mut sum = 0.0;
 
-    // |dt/dz| = 1/((1+z)H(z)), H(z) = H₀ E(z)
-    // H₀ in yr⁻¹: H₀ = 67.4 km/s/Mpc = 67.4/(3.0857e19 km) s⁻¹ → × 3.156e7 s/yr⁻¹
-    let h0_per_yr = crate::constants::H0_SI * 3.15576e7; // s⁻¹ → yr⁻¹
+    let h0_per_yr = cosmo.h0_si * 3.15576e7; // s⁻¹ → yr⁻¹
 
     for i in 0..n {
         let z0 = z + i as f64 * dz;
@@ -267,12 +270,7 @@ pub fn stellar_mass_density(z: f64) -> Result<f64, BrahmandaError> {
 
         let integrand = |zz: f64| -> Result<f64, BrahmandaError> {
             let sfr = sfr_density_madau_dickinson(zz)?;
-            let e = crate::power_spectrum::hubble_parameter_ratio(
-                zz,
-                crate::constants::OMEGA_M,
-                -1.0,
-                0.0,
-            )?;
+            let e = crate::power_spectrum::hubble_parameter_ratio(zz, cosmo)?;
             Ok(sfr / ((1.0 + zz) * h0_per_yr * e))
         };
 
@@ -392,20 +390,23 @@ mod tests {
 
     #[test]
     fn test_stellar_mass_density_decreases_with_z() {
-        let rho_0 = stellar_mass_density(0.0).unwrap();
-        let rho_1 = stellar_mass_density(1.0).unwrap();
-        let rho_3 = stellar_mass_density(3.0).unwrap();
+        let cosmo = crate::Cosmology::planck2018();
+        let rho_0 = stellar_mass_density(0.0, &cosmo).unwrap();
+        let rho_1 = stellar_mass_density(1.0, &cosmo).unwrap();
+        let rho_3 = stellar_mass_density(3.0, &cosmo).unwrap();
         assert!(rho_0 > rho_1 && rho_1 > rho_3);
     }
 
     #[test]
     fn test_stellar_mass_density_positive() {
-        let rho = stellar_mass_density(0.0).unwrap();
+        let cosmo = crate::Cosmology::planck2018();
+        let rho = stellar_mass_density(0.0, &cosmo).unwrap();
         assert!(rho > 0.0);
     }
 
     #[test]
     fn test_stellar_mass_density_invalid() {
-        assert!(stellar_mass_density(-1.0).is_err());
+        let cosmo = crate::Cosmology::planck2018();
+        assert!(stellar_mass_density(-1.0, &cosmo).is_err());
     }
 }

@@ -1,41 +1,37 @@
 //! Dark matter halos — density profiles, mass functions, concentration, accretion.
 //!
-//! NFW profile, halo mass functions (Press-Schechter, Sheth-Tormen),
+//! NFW profile, halo mass functions (Press-Schechter, Sheth-Tormen, Tinker08),
 //! virial relations, mass accretion history, subhalo abundance matching.
+//!
+//! All functions that depend on cosmological parameters take a
+//! [`Cosmology`] reference.
 
 use std::f64::consts::PI;
 
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{G, KPC_M, M_SUN, MPC_M, OMEGA_M, RHO_CRIT};
+use crate::constants::{G, KPC_M, M_SUN, MPC_M};
+use crate::cosmology::Cosmology;
 use crate::error::{BrahmandaError, ensure_finite, require_finite};
 use crate::power_spectrum;
 
-/// Planck 2018 dimensionless Hubble parameter.
-const H: f64 = 0.674;
-
 /// Mean matter density in M_sun / (Mpc/h)³.
-fn mean_matter_density_h2() -> f64 {
-    let rho_m_kg_m3 = OMEGA_M * RHO_CRIT;
+fn mean_matter_density_h2(cosmo: &Cosmology) -> f64 {
+    let rho_m_kg_m3 = cosmo.omega_m * cosmo.rho_crit;
     let rho_m_msun_mpc3 = rho_m_kg_m3 * (MPC_M * MPC_M * MPC_M) / M_SUN;
-    rho_m_msun_mpc3 / (H * H * H)
+    rho_m_msun_mpc3 / (cosmo.h * cosmo.h * cosmo.h)
 }
 
 /// NFW (Navarro-Frenk-White) dark matter halo density profile.
 ///
 /// ρ(r) = ρ_s / [(r/r_s)(1 + r/r_s)²]
 ///
-/// # Arguments
-/// * `r` — Radius from halo center (kpc).
-/// * `rho_s` — Characteristic density (M_sun/kpc³).
-/// * `r_s` — Scale radius (kpc).
-///
 /// ```
 /// use brahmanda::halo::nfw_density;
 ///
 /// let d_inner = nfw_density(10.0, 1e7, 20.0).unwrap();
 /// let d_outer = nfw_density(100.0, 1e7, 20.0).unwrap();
-/// assert!(d_inner > d_outer); // density decreases outward
+/// assert!(d_inner > d_outer);
 /// ```
 #[inline]
 pub fn nfw_density(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaError> {
@@ -60,7 +56,7 @@ pub fn nfw_density(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaError> 
 ///
 /// let m1 = nfw_enclosed_mass(10.0, 1e7, 20.0).unwrap();
 /// let m2 = nfw_enclosed_mass(100.0, 1e7, 20.0).unwrap();
-/// assert!(m2 > m1); // enclosed mass increases with radius
+/// assert!(m2 > m1);
 /// ```
 #[inline]
 pub fn nfw_enclosed_mass(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaError> {
@@ -82,18 +78,11 @@ pub fn nfw_enclosed_mass(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaE
 
 /// NFW circular velocity at radius r (km/s).
 ///
-/// v_c(r) = √(GM(r)/r)
-///
-/// # Arguments
-/// * `r_kpc` — Radius in kpc.
-/// * `rho_s_msun_kpc3` — Characteristic density in M_sun/kpc³.
-/// * `r_s_kpc` — Scale radius in kpc.
-///
 /// ```
 /// use brahmanda::halo::nfw_circular_velocity;
 ///
 /// let v = nfw_circular_velocity(8.0, 1e7, 30.0).unwrap();
-/// assert!(v > 0.0); // positive velocity
+/// assert!(v > 0.0);
 /// ```
 pub fn nfw_circular_velocity(
     r_kpc: f64,
@@ -101,11 +90,10 @@ pub fn nfw_circular_velocity(
     r_s_kpc: f64,
 ) -> Result<f64, BrahmandaError> {
     let m = nfw_enclosed_mass(r_kpc, rho_s_msun_kpc3, r_s_kpc)?;
-    // Convert: M in M_sun, r in kpc → v in km/s
     let m_kg = m * M_SUN;
     let r_m = r_kpc * KPC_M;
     let v_ms = (G * m_kg / r_m).sqrt();
-    ensure_finite(v_ms / 1e3, "nfw_circular_velocity") // m/s → km/s
+    ensure_finite(v_ms / 1e3, "nfw_circular_velocity")
 }
 
 /// Virial radius for a halo of mass M_vir (kpc).
@@ -115,13 +103,14 @@ pub fn nfw_circular_velocity(
 /// Uses Δ_vir = 200 (standard definition).
 ///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::virial_radius;
 ///
-/// // Milky Way-mass halo: ~200-300 kpc
-/// let r = virial_radius(1e12).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let r = virial_radius(1e12, &cosmo).unwrap();
 /// assert!(r > 150.0 && r < 350.0);
 /// ```
-pub fn virial_radius(m_vir_msun: f64) -> Result<f64, BrahmandaError> {
+pub fn virial_radius(m_vir_msun: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(m_vir_msun, "virial_radius")?;
     if m_vir_msun <= 0.0 {
         return Err(BrahmandaError::InvalidStructure(
@@ -130,31 +119,34 @@ pub fn virial_radius(m_vir_msun: f64) -> Result<f64, BrahmandaError> {
     }
     let delta = 200.0;
     let m_kg = m_vir_msun * M_SUN;
-    let r_m = (3.0 * m_kg / (4.0 * PI * delta * RHO_CRIT)).cbrt();
+    let r_m = (3.0 * m_kg / (4.0 * PI * delta * cosmo.rho_crit)).cbrt();
     let r_kpc = r_m / KPC_M;
     ensure_finite(r_kpc, "virial_radius")
 }
 
 /// Concentration parameter: c = R_vir / r_s.
 ///
-/// Typical: c ≈ 5–15 for halos of 10¹¹–10¹⁵ M_sun.
-/// Uses Dutton & Maccio (2014) fitting formula:
-/// log10(c) = 0.905 - 0.101 × log10(M_vir / (10¹² h⁻¹ M_sun))
+/// Uses Dutton & Maccio (2014) fitting formula.
 ///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::concentration_dutton_maccio;
 ///
-/// let c = concentration_dutton_maccio(1e12).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let c = concentration_dutton_maccio(1e12, &cosmo).unwrap();
 /// assert!(c > 5.0 && c < 15.0);
 /// ```
-pub fn concentration_dutton_maccio(m_vir_msun: f64) -> Result<f64, BrahmandaError> {
+pub fn concentration_dutton_maccio(
+    m_vir_msun: f64,
+    cosmo: &Cosmology,
+) -> Result<f64, BrahmandaError> {
     require_finite(m_vir_msun, "concentration_dutton_maccio")?;
     if m_vir_msun <= 0.0 {
         return Err(BrahmandaError::InvalidStructure(
             "concentration_dutton_maccio: mass must be positive".to_string(),
         ));
     }
-    let log_m = (m_vir_msun / (1e12 / H)).log10();
+    let log_m = (m_vir_msun / (1e12 / cosmo.h)).log10();
     let log_c = 0.905 - 0.101 * log_m;
     ensure_finite(10.0_f64.powf(log_c), "concentration_dutton_maccio")
 }
@@ -177,16 +169,18 @@ impl HaloProperties {
     /// Compute halo properties from virial mass.
     ///
     /// ```
+    /// use brahmanda::Cosmology;
     /// use brahmanda::halo::HaloProperties;
     ///
-    /// let halo = HaloProperties::from_mass(1e12).unwrap();
+    /// let cosmo = Cosmology::planck2018();
+    /// let halo = HaloProperties::from_mass(1e12, &cosmo).unwrap();
     /// assert!(halo.r_vir_kpc > 150.0 && halo.r_vir_kpc < 350.0);
     /// assert!(halo.concentration > 5.0 && halo.concentration < 15.0);
     /// ```
-    pub fn from_mass(m_vir_msun: f64) -> Result<Self, BrahmandaError> {
+    pub fn from_mass(m_vir_msun: f64, cosmo: &Cosmology) -> Result<Self, BrahmandaError> {
         require_finite(m_vir_msun, "HaloProperties::from_mass")?;
-        let r_vir = virial_radius(m_vir_msun)?;
-        let c = concentration_dutton_maccio(m_vir_msun)?;
+        let r_vir = virial_radius(m_vir_msun, cosmo)?;
+        let c = concentration_dutton_maccio(m_vir_msun, cosmo)?;
         let r_s = r_vir / c;
         Ok(Self {
             m_vir_msun,
@@ -202,15 +196,15 @@ pub const DELTA_C: f64 = 1.686;
 
 /// Lagrangian radius for a halo of mass M (Mpc/h).
 ///
-/// R = (3M / 4π ρ̄_m)^(1/3), where ρ̄_m = Ω_m × ρ_crit.
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::lagrangian_radius;
 ///
-/// let r = lagrangian_radius(1e12).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let r = lagrangian_radius(1e12, &cosmo).unwrap();
 /// assert!(r > 0.0);
 /// ```
-pub fn lagrangian_radius(m_msun: f64) -> Result<f64, BrahmandaError> {
+pub fn lagrangian_radius(m_msun: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(m_msun, "lagrangian_radius")?;
     if m_msun <= 0.0 {
         return Err(BrahmandaError::InvalidStructure(
@@ -218,61 +212,69 @@ pub fn lagrangian_radius(m_msun: f64) -> Result<f64, BrahmandaError> {
         ));
     }
     let m_kg = m_msun * M_SUN;
-    let rho_m = OMEGA_M * RHO_CRIT; // mean matter density (kg/m³)
+    let rho_m = cosmo.omega_m * cosmo.rho_crit;
     let r_m = (3.0 * m_kg / (4.0 * PI * rho_m)).cbrt();
-    ensure_finite(r_m / MPC_M * H, "lagrangian_radius")
+    ensure_finite(r_m / MPC_M * cosmo.h, "lagrangian_radius")
 }
 
 /// Peak height ν = δ_c / σ(M, z).
 ///
-/// The dimensionless threshold that determines how rare a halo of mass M
-/// is at redshift z. Higher ν means rarer (more massive) halos.
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::peak_height;
 ///
-/// let nu = peak_height(1e12, 0.0).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let nu = peak_height(1e12, 0.0, &cosmo).unwrap();
 /// assert!(nu > 0.0);
 /// ```
-pub fn peak_height(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
-    let r = lagrangian_radius(m_msun)?;
-    let sigma = power_spectrum::sigma_r(r, z)?;
+pub fn peak_height(m_msun: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
+    let r = lagrangian_radius(m_msun, cosmo)?;
+    let sigma = power_spectrum::sigma_r(r, z, cosmo)?;
     ensure_finite(DELTA_C / sigma, "peak_height")
 }
 
 /// Convert a multiplicity function f(ν) value to dn/dlnM (h³/Mpc³).
 ///
 /// dn/dlnM = (ρ̄_m / M) × |dlnσ/dlnM| × f(ν)
-fn mass_function_from_fnu(f_nu: f64, m_msun: f64) -> f64 {
-    // |dlnσ/dlnM| ≈ (n_s + 3) / 18 for our power-law σ(R) approximation
-    let n_s = crate::constants::N_S;
-    let dlnsigma_dlnm = (n_s + 3.0) / 18.0;
-    let rho_m = mean_matter_density_h2();
-    (rho_m / m_msun) * dlnsigma_dlnm * f_nu
+///
+/// Computes exact |dlnσ/dlnM| via finite-difference of σ(R).
+fn mass_function_from_fnu(
+    f_nu: f64,
+    m_msun: f64,
+    z: f64,
+    cosmo: &Cosmology,
+) -> Result<f64, BrahmandaError> {
+    let r = lagrangian_radius(m_msun, cosmo)?;
+    let dr = r * 0.01;
+    let s_lo = power_spectrum::sigma_r(r - dr, z, cosmo)?;
+    let s_hi = power_spectrum::sigma_r(r + dr, z, cosmo)?;
+    let dlns_dlnr = (s_hi.ln() - s_lo.ln()) / ((r + dr).ln() - (r - dr).ln());
+    // dlnσ/dlnM = dlnσ/dlnR × dlnR/dlnM = dlnσ/dlnR / 3
+    let dlns_dlnm = dlns_dlnr / 3.0;
+
+    let rho_m = mean_matter_density_h2(cosmo);
+    ensure_finite(
+        (rho_m / m_msun) * dlns_dlnm.abs() * f_nu,
+        "mass_function_from_fnu",
+    )
 }
 
 /// Press-Schechter halo mass function: dn/dlnM.
 ///
-/// Returns the comoving number density of halos per unit ln(M)
-/// in units of h³/Mpc³.
-///
-/// dn/dlnM = (ρ̄_m / M) × |dlnσ/dlnM| × f(ν)
-///
-/// where f(ν) = √(2/π) × ν × exp(-ν²/2) is the PS multiplicity function.
-///
-/// # Arguments
-/// * `m_msun` — Halo mass in solar masses.
-/// * `z` — Redshift.
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::press_schechter_dndlnm;
 ///
-/// // More low-mass halos than high-mass
-/// let n_low = press_schechter_dndlnm(1e10, 0.0).unwrap();
-/// let n_high = press_schechter_dndlnm(1e14, 0.0).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let n_low = press_schechter_dndlnm(1e10, 0.0, &cosmo).unwrap();
+/// let n_high = press_schechter_dndlnm(1e14, 0.0, &cosmo).unwrap();
 /// assert!(n_low > n_high);
 /// ```
-pub fn press_schechter_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+pub fn press_schechter_dndlnm(
+    m_msun: f64,
+    z: f64,
+    cosmo: &Cosmology,
+) -> Result<f64, BrahmandaError> {
     require_finite(m_msun, "press_schechter_dndlnm")?;
     require_finite(z, "press_schechter_dndlnm")?;
     if m_msun <= 0.0 {
@@ -281,37 +283,25 @@ pub fn press_schechter_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError
         ));
     }
 
-    let nu = peak_height(m_msun, z)?;
-
-    // PS multiplicity: f(ν) = √(2/π) × ν × exp(-ν²/2)
+    let nu = peak_height(m_msun, z, cosmo)?;
     let f_nu = (2.0 / PI).sqrt() * nu * (-nu * nu / 2.0).exp();
-
-    let dndlnm = mass_function_from_fnu(f_nu, m_msun);
-    ensure_finite(dndlnm, "press_schechter_dndlnm")
+    mass_function_from_fnu(f_nu, m_msun, z, cosmo)
 }
 
 /// Linear halo bias — Mo & White (1996).
 ///
 /// b(M, z) = 1 + (ν² - 1) / δ_c
 ///
-/// where ν = δ_c / σ(M, z) is the peak height.
-///
-/// Massive halos (ν > 1) are positively biased (b > 1),
-/// while low-mass halos can be anti-biased (b < 1).
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::bias_mo_white;
 ///
-/// // Cluster-mass halos are strongly biased
-/// let b_cluster = bias_mo_white(1e15, 0.0).unwrap();
-/// assert!(b_cluster > 2.0);
-///
-/// // MW-mass halos are mildly biased
-/// let b_mw = bias_mo_white(1e12, 0.0).unwrap();
-/// assert!(b_mw > 0.5 && b_mw < 3.0);
+/// let cosmo = Cosmology::planck2018();
+/// let b = bias_mo_white(1e15, 0.0, &cosmo).unwrap();
+/// assert!(b > 2.0);
 /// ```
-pub fn bias_mo_white(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
-    let nu = peak_height(m_msun, z)?;
+pub fn bias_mo_white(m_msun: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
+    let nu = peak_height(m_msun, z, cosmo)?;
     ensure_finite(1.0 + (nu * nu - 1.0) / DELTA_C, "bias_mo_white")
 }
 
@@ -323,31 +313,21 @@ pub fn bias_mo_white(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
 pub const ST_A: f64 = 0.707;
 /// Sheth-Tormen p parameter.
 pub const ST_P: f64 = 0.3;
-/// Sheth-Tormen normalization (ensures ∫f(ν)dν = 1).
+/// Sheth-Tormen normalization.
 pub const ST_BIG_A: f64 = 0.3222;
 
 /// Sheth-Tormen halo mass function: dn/dlnM.
 ///
-/// Improved over Press-Schechter by accounting for ellipsoidal collapse.
-/// The multiplicity function is:
-///
-/// f_ST(ν) = A √(2a/π) ν [1 + (aν²)^(-p)] exp(-aν²/2)
-///
-/// with a = 0.707, p = 0.3, A ≈ 0.3222.
-///
-/// # Arguments
-/// * `m_msun` — Halo mass in solar masses.
-/// * `z` — Redshift.
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::{sheth_tormen_dndlnm, press_schechter_dndlnm};
 ///
-/// // ST predicts more massive halos than PS at the high-mass end
-/// let n_st = sheth_tormen_dndlnm(1e15, 0.0).unwrap();
-/// let n_ps = press_schechter_dndlnm(1e15, 0.0).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let n_st = sheth_tormen_dndlnm(1e15, 0.0, &cosmo).unwrap();
+/// let n_ps = press_schechter_dndlnm(1e15, 0.0, &cosmo).unwrap();
 /// assert!(n_st > n_ps);
 /// ```
-pub fn sheth_tormen_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+pub fn sheth_tormen_dndlnm(m_msun: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(m_msun, "sheth_tormen_dndlnm")?;
     require_finite(z, "sheth_tormen_dndlnm")?;
     if m_msun <= 0.0 {
@@ -356,31 +336,26 @@ pub fn sheth_tormen_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
         ));
     }
 
-    let nu = peak_height(m_msun, z)?;
+    let nu = peak_height(m_msun, z, cosmo)?;
     let a_nu2 = ST_A * nu * nu;
-
-    // f_ST(ν) = A √(2a/π) ν [1 + (aν²)^(-p)] exp(-aν²/2)
     let f_nu =
         ST_BIG_A * (2.0 * ST_A / PI).sqrt() * nu * (1.0 + a_nu2.powf(-ST_P)) * (-a_nu2 / 2.0).exp();
 
-    let dndlnm = mass_function_from_fnu(f_nu, m_msun);
-    ensure_finite(dndlnm, "sheth_tormen_dndlnm")
+    mass_function_from_fnu(f_nu, m_msun, z, cosmo)
 }
 
 /// Sheth-Tormen linear halo bias.
 ///
-/// b_ST(ν) = 1 + (aν² - 1)/δ_c + 2p / (δ_c [1 + (aν²)^p])
-///
-/// Generalization of Mo & White that accounts for ellipsoidal collapse.
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::bias_sheth_tormen;
 ///
-/// let b = bias_sheth_tormen(1e14, 0.0).unwrap();
-/// assert!(b > 1.0, "cluster halos should be biased");
+/// let cosmo = Cosmology::planck2018();
+/// let b = bias_sheth_tormen(1e14, 0.0, &cosmo).unwrap();
+/// assert!(b > 1.0);
 /// ```
-pub fn bias_sheth_tormen(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
-    let nu = peak_height(m_msun, z)?;
+pub fn bias_sheth_tormen(m_msun: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
+    let nu = peak_height(m_msun, z, cosmo)?;
     let a_nu2 = ST_A * nu * nu;
     let b = 1.0 + (a_nu2 - 1.0) / DELTA_C + 2.0 * ST_P / (DELTA_C * (1.0 + a_nu2.powf(ST_P)));
     ensure_finite(b, "bias_sheth_tormen")
@@ -392,30 +367,16 @@ pub fn bias_sheth_tormen(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
 
 /// Tinker et al. (2008) halo mass function: dn/dlnM.
 ///
-/// Calibrated from N-body simulations, this is the standard mass function
-/// used in modern analyses. Coefficients are for Δ = 200 (M200m definition).
-///
-/// f(σ) = A [(σ/b)^(-a) + 1] exp(-c/σ²)
-///
-/// with z-dependent parameters A, a, b, c from Table 2 + Eq. 5–8.
-///
-/// # Arguments
-/// * `m_msun` — Halo mass in solar masses (M200m).
-/// * `z` — Redshift.
-///
 /// ```
-/// use brahmanda::halo::{tinker08_dndlnm, press_schechter_dndlnm};
+/// use brahmanda::Cosmology;
+/// use brahmanda::halo::tinker08_dndlnm;
 ///
-/// // More low-mass halos than high-mass
-/// let n_low = tinker08_dndlnm(1e10, 0.0).unwrap();
-/// let n_high = tinker08_dndlnm(1e14, 0.0).unwrap();
+/// let cosmo = Cosmology::planck2018();
+/// let n_low = tinker08_dndlnm(1e10, 0.0, &cosmo).unwrap();
+/// let n_high = tinker08_dndlnm(1e14, 0.0, &cosmo).unwrap();
 /// assert!(n_low > n_high);
-///
-/// // Tinker08 gives different abundance than PS
-/// let n_ps = press_schechter_dndlnm(1e14, 0.0).unwrap();
-/// assert!((n_high - n_ps).abs() > 0.0);
 /// ```
-pub fn tinker08_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+pub fn tinker08_dndlnm(m_msun: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(m_msun, "tinker08_dndlnm")?;
     require_finite(z, "tinker08_dndlnm")?;
     if m_msun <= 0.0 {
@@ -424,57 +385,38 @@ pub fn tinker08_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
         ));
     }
 
-    let nu = peak_height(m_msun, z)?;
+    let nu = peak_height(m_msun, z, cosmo)?;
     let sigma = DELTA_C / nu;
 
-    // Tinker 2008 Table 2 coefficients for Δ = 200 at z = 0
     let a0 = 0.186;
     let a_a = 1.47;
     let a_b = 2.57;
     let a_c = 1.19;
 
-    // Redshift evolution (Tinker 2008, Eq. 5–8)
     let big_a = a0 * (1.0 + z).powf(-0.14);
     let a = a_a * (1.0 + z).powf(-0.06);
     let log_alpha = -(0.75 / ((z / 2.3).powi(2) + 1.0).log10()).max(-10.0);
     let b = a_b * (1.0 + z).powf(-10.0_f64.powf(log_alpha));
     let c = a_c;
 
-    // f(σ) = A [(σ/b)^(-a) + 1] exp(-c/σ²)
     let f_sigma = big_a * ((sigma / b).powf(-a) + 1.0) * (-c / (sigma * sigma)).exp();
 
-    let dndlnm = mass_function_from_fnu(f_sigma, m_msun);
-    ensure_finite(dndlnm, "tinker08_dndlnm")
+    mass_function_from_fnu(f_sigma, m_msun, z, cosmo)
 }
 
 /// Tinker et al. (2010) linear halo bias.
 ///
-/// Calibrated bias function for halos defined at Δ = 200:
-///
-/// b(ν) = 1 - A ν^a / (ν^a + δ_c^a) + B ν^b + C ν^c
-///
-/// where ν = δ_c/σ is the peak height.
-///
-/// # Arguments
-/// * `m_msun` — Halo mass in solar masses.
-/// * `z` — Redshift.
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::bias_tinker10;
 ///
-/// // Massive halos are biased
-/// let b = bias_tinker10(1e14, 0.0).unwrap();
-/// assert!(b > 1.0, "cluster bias = {b}");
-///
-/// // Bias increases with mass
-/// let b_low = bias_tinker10(1e11, 0.0).unwrap();
-/// assert!(b < bias_tinker10(1e15, 0.0).unwrap());
-/// assert!(b > b_low);
+/// let cosmo = Cosmology::planck2018();
+/// let b = bias_tinker10(1e14, 0.0, &cosmo).unwrap();
+/// assert!(b > 1.0);
 /// ```
-pub fn bias_tinker10(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
-    let nu = peak_height(m_msun, z)?;
+pub fn bias_tinker10(m_msun: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
+    let nu = peak_height(m_msun, z, cosmo)?;
 
-    // Tinker 2010 Table 2 coefficients for Δ = 200
     let big_a = 1.005;
     let a_a = 0.378;
     let big_b = 0.183;
@@ -497,25 +439,12 @@ pub fn bias_tinker10(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
 ///
 /// M(z) = M₀ × exp(-α × z)
 ///
-/// The accretion rate parameter α is related to the formation redshift
-/// and concentration: α ≈ ln(2) / z_f, where c ∝ (1 + z_f).
-///
-/// # Arguments
-/// * `m0_msun` — Halo mass at z=0 (solar masses).
-/// * `z` — Redshift at which to evaluate mass.
-/// * `alpha` — Accretion rate parameter (typical: 0.5–2.0).
-///
 /// ```
 /// use brahmanda::halo::mass_accretion_wechsler;
 ///
 /// let m0 = 1e12;
-/// // At z=0, M = M₀
 /// let m = mass_accretion_wechsler(m0, 0.0, 1.0).unwrap();
 /// assert!((m - m0).abs() < 1.0);
-///
-/// // At z>0, M < M₀ (halo was less massive in the past)
-/// let m1 = mass_accretion_wechsler(m0, 1.0, 1.0).unwrap();
-/// assert!(m1 < m0);
 /// ```
 pub fn mass_accretion_wechsler(m0_msun: f64, z: f64, alpha: f64) -> Result<f64, BrahmandaError> {
     require_finite(m0_msun, "mass_accretion_wechsler")?;
@@ -534,10 +463,7 @@ pub fn mass_accretion_wechsler(m0_msun: f64, z: f64, alpha: f64) -> Result<f64, 
     ensure_finite(m0_msun * (-alpha * z).exp(), "mass_accretion_wechsler")
 }
 
-/// Accretion rate parameter α from concentration — Wechsler et al. (2002).
-///
-/// α ≈ c / 4.1 (approximate relation for NFW halos at z=0).
-/// More concentrated halos formed earlier and have higher α.
+/// Accretion rate parameter α from concentration.
 ///
 /// ```
 /// use brahmanda::halo::accretion_rate_from_concentration;
@@ -556,28 +482,16 @@ pub fn accretion_rate_from_concentration(c: f64) -> Result<f64, BrahmandaError> 
     ensure_finite(c / 4.1, "accretion_rate_from_concentration")
 }
 
-/// Halo mass accretion history — McBride et al. (2009) power-law form.
+/// Halo mass accretion history — McBride et al. (2009).
 ///
 /// M(z) = M₀ × (1+z)^β × exp(-γ z)
-///
-/// A more flexible two-parameter form that better captures late-time
-/// accretion compared to the pure exponential.
-///
-/// # Arguments
-/// * `m0_msun` — Halo mass at z=0 (solar masses).
-/// * `z` — Redshift.
-/// * `beta` — Power-law index (typical: ~0.1 for MW-mass halos).
-/// * `gamma` — Exponential decay (typical: ~0.6–1.0).
 ///
 /// ```
 /// use brahmanda::halo::mass_accretion_mcbride;
 ///
 /// let m0 = 1e12;
 /// let m = mass_accretion_mcbride(m0, 0.0, 0.1, 0.8).unwrap();
-/// assert!((m - m0).abs() < 1.0); // M(z=0) = M₀
-///
-/// let m1 = mass_accretion_mcbride(m0, 1.0, 0.1, 0.8).unwrap();
-/// assert!(m1 < m0);
+/// assert!((m - m0).abs() < 1.0);
 /// ```
 pub fn mass_accretion_mcbride(
     m0_msun: f64,
@@ -611,25 +525,11 @@ pub fn mass_accretion_mcbride(
 
 /// Schechter stellar mass function: φ(M*) dn/dlog₁₀M*.
 ///
-/// φ(M*) = ln(10) × φ* × (M*/M*₀)^(α+1) × exp(-M*/M*₀)
-///
-/// Returns the number density in units of Mpc⁻³ dex⁻¹.
-///
-/// # Arguments
-/// * `log_m_star` — log₁₀(M*/M_sun) of the stellar mass.
-/// * `log_m_star_0` — log₁₀(M*₀/M_sun), characteristic mass (typical: ~10.65).
-/// * `phi_star` — Normalization in Mpc⁻³ (typical: ~4.5e-3).
-/// * `alpha` — Faint-end slope (typical: -1.2 to -1.5).
-///
 /// ```
 /// use brahmanda::halo::schechter_smf;
 ///
 /// let phi = schechter_smf(10.0, 10.65, 4.5e-3, -1.2).unwrap();
 /// assert!(phi > 0.0);
-///
-/// // Exponential cutoff at high mass
-/// let phi_high = schechter_smf(12.0, 10.65, 4.5e-3, -1.2).unwrap();
-/// assert!(phi_high < phi);
 /// ```
 pub fn schechter_smf(
     log_m_star: f64,
@@ -652,19 +552,14 @@ pub fn schechter_smf(
     ensure_finite(phi, "schechter_smf")
 }
 
-/// Cumulative stellar mass function n(>M*) — integrated Schechter function.
-///
-/// n(>M*) = φ* × Γ(α+1, M*/M*₀)
-///
-/// where Γ is the upper incomplete gamma function. Uses numerical
-/// integration via Simpson's rule.
+/// Cumulative stellar mass function n(>M*).
 ///
 /// ```
 /// use brahmanda::halo::schechter_cumulative;
 ///
 /// let n1 = schechter_cumulative(10.0, 10.65, 4.5e-3, -1.2).unwrap();
 /// let n2 = schechter_cumulative(11.0, 10.65, 4.5e-3, -1.2).unwrap();
-/// assert!(n1 > n2); // fewer galaxies above higher mass threshold
+/// assert!(n1 > n2);
 /// ```
 pub fn schechter_cumulative(
     log_m_star_min: f64,
@@ -673,7 +568,6 @@ pub fn schechter_cumulative(
     alpha: f64,
 ) -> Result<f64, BrahmandaError> {
     require_finite(log_m_star_min, "schechter_cumulative")?;
-    // Integrate from log_m_star_min to log_m_star_0 + 4 (well past cutoff)
     let log_max = log_m_star_0 + 4.0;
     if log_m_star_min >= log_max {
         return Ok(0.0);
@@ -698,25 +592,13 @@ pub fn schechter_cumulative(
 
 /// Subhalo abundance matching — stellar mass from halo mass.
 ///
-/// Maps halo mass to stellar mass by matching the cumulative halo mass
-/// function n(>M_h) to the cumulative stellar mass function n(>M*),
-/// i.e., finding M* such that n_halo(>M_h) = n_galaxy(>M*).
-///
-/// Uses a simple bisection search on the cumulative Schechter function.
-///
-/// # Arguments
-/// * `m_halo_msun` — Halo mass in solar masses.
-/// * `z` — Redshift.
-/// * `log_m_star_0` — Schechter characteristic mass log₁₀(M*₀/M_sun).
-/// * `phi_star` — Schechter normalization (Mpc⁻³).
-/// * `alpha` — Schechter faint-end slope.
-///
 /// ```
+/// use brahmanda::Cosmology;
 /// use brahmanda::halo::sham_stellar_mass;
 ///
-/// let log_ms = sham_stellar_mass(1e12, 0.0, 10.65, 4.5e-3, -1.2).unwrap();
-/// // MW-mass halo → stellar mass ~10^10.5 M_sun
-/// assert!(log_ms > 9.0 && log_ms < 12.0, "log M* = {log_ms}");
+/// let cosmo = Cosmology::planck2018();
+/// let log_ms = sham_stellar_mass(1e12, 0.0, 10.65, 4.5e-3, -1.2, &cosmo).unwrap();
+/// assert!(log_ms > 9.0 && log_ms < 12.0);
 /// ```
 pub fn sham_stellar_mass(
     m_halo_msun: f64,
@@ -724,6 +606,7 @@ pub fn sham_stellar_mass(
     log_m_star_0: f64,
     phi_star: f64,
     alpha: f64,
+    cosmo: &Cosmology,
 ) -> Result<f64, BrahmandaError> {
     require_finite(m_halo_msun, "sham_stellar_mass")?;
     require_finite(z, "sham_stellar_mass")?;
@@ -733,10 +616,8 @@ pub fn sham_stellar_mass(
         ));
     }
 
-    // Cumulative halo number density n(>M_h) from Press-Schechter
-    // Integrate dn/dlnM from M_h to some upper limit
     let log_m_h = m_halo_msun.log10();
-    let log_m_max = 16.0; // 10^16 M_sun upper limit
+    let log_m_max = 16.0;
     let n_steps = 100_usize;
     let dlog = (log_m_max - log_m_h) / n_steps as f64;
     let mut n_halo = 0.0;
@@ -745,11 +626,10 @@ pub fn sham_stellar_mass(
         let l0 = log_m_h + i as f64 * dlog;
         let l1 = l0 + dlog / 2.0;
         let l2 = l0 + dlog;
-        // dn/dlnM × dlnM = dn/dlog₁₀M × dlog₁₀M, with dlnM = ln(10) dlog₁₀M
         let f = |log_m: f64| -> Result<f64, BrahmandaError> {
             let m = 10.0_f64.powf(log_m);
-            let dn = press_schechter_dndlnm(m, z)?;
-            Ok(dn * 10.0_f64.ln()) // convert dlnM → dlog₁₀M
+            let dn = press_schechter_dndlnm(m, z, cosmo)?;
+            Ok(dn * 10.0_f64.ln())
         };
         let f0 = f(l0)?;
         let f1 = f(l1)?;
@@ -763,17 +643,16 @@ pub fn sham_stellar_mass(
         ));
     }
 
-    // Bisection: find log_m_star such that n_galaxy(>M*) = n_halo(>M_h)
-    let mut lo = 6.0_f64; // 10^6 M_sun lower bound
-    let mut hi = log_m_star_0 + 3.0; // well above cutoff
+    let mut lo = 6.0_f64;
+    let mut hi = log_m_star_0 + 3.0;
 
     for _ in 0..80 {
         let mid = (lo + hi) / 2.0;
         let n_gal = schechter_cumulative(mid, log_m_star_0, phi_star, alpha)?;
         if n_gal > n_halo {
-            lo = mid; // need higher M* (fewer galaxies)
+            lo = mid;
         } else {
-            hi = mid; // need lower M* (more galaxies)
+            hi = mid;
         }
     }
 
@@ -783,6 +662,11 @@ pub fn sham_stellar_mass(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Cosmology;
+
+    fn cosmo() -> Cosmology {
+        Cosmology::planck2018()
+    }
 
     #[test]
     fn test_nfw_density_decreases() {
@@ -800,20 +684,22 @@ mod tests {
 
     #[test]
     fn test_virial_radius_milky_way() {
-        // MW: ~10¹² M_sun → R_vir ~ 200-300 kpc
-        let r = virial_radius(1e12).unwrap();
+        let c = cosmo();
+        let r = virial_radius(1e12, &c).unwrap();
         assert!(r > 150.0 && r < 350.0, "MW virial radius: {r} kpc");
     }
 
     #[test]
     fn test_concentration_milky_way() {
-        let c = concentration_dutton_maccio(1e12).unwrap();
-        assert!(c > 5.0 && c < 15.0, "MW concentration: {c}");
+        let c = cosmo();
+        let conc = concentration_dutton_maccio(1e12, &c).unwrap();
+        assert!(conc > 5.0 && conc < 15.0, "MW concentration: {conc}");
     }
 
     #[test]
     fn test_halo_properties() {
-        let halo = HaloProperties::from_mass(1e12).unwrap();
+        let c = cosmo();
+        let halo = HaloProperties::from_mass(1e12, &c).unwrap();
         assert!(halo.r_vir_kpc > 0.0);
         assert!(halo.r_s_kpc > 0.0);
         assert!(halo.concentration > 0.0);
@@ -822,55 +708,61 @@ mod tests {
 
     #[test]
     fn test_invalid_rejected() {
+        let c = cosmo();
         assert!(nfw_density(-1.0, 1e7, 20.0).is_err());
-        assert!(virial_radius(0.0).is_err());
-        assert!(concentration_dutton_maccio(f64::NAN).is_err());
+        assert!(virial_radius(0.0, &c).is_err());
+        assert!(concentration_dutton_maccio(f64::NAN, &c).is_err());
     }
 
     #[test]
     fn test_lagrangian_radius_increases_with_mass() {
-        let r1 = lagrangian_radius(1e10).unwrap();
-        let r2 = lagrangian_radius(1e12).unwrap();
-        let r3 = lagrangian_radius(1e14).unwrap();
+        let c = cosmo();
+        let r1 = lagrangian_radius(1e10, &c).unwrap();
+        let r2 = lagrangian_radius(1e12, &c).unwrap();
+        let r3 = lagrangian_radius(1e14, &c).unwrap();
         assert!(r3 > r2 && r2 > r1);
     }
 
     #[test]
     fn test_peak_height_increases_with_mass() {
-        // More massive halos → higher ν (rarer peaks)
-        let nu1 = peak_height(1e10, 0.0).unwrap();
-        let nu2 = peak_height(1e14, 0.0).unwrap();
+        let c = cosmo();
+        let nu1 = peak_height(1e10, 0.0, &c).unwrap();
+        let nu2 = peak_height(1e14, 0.0, &c).unwrap();
         assert!(nu2 > nu1, "ν should increase with mass");
     }
 
     #[test]
     fn test_press_schechter_decreases_with_mass() {
-        let n1 = press_schechter_dndlnm(1e10, 0.0).unwrap();
-        let n2 = press_schechter_dndlnm(1e12, 0.0).unwrap();
-        let n3 = press_schechter_dndlnm(1e14, 0.0).unwrap();
+        let c = cosmo();
+        let n1 = press_schechter_dndlnm(1e10, 0.0, &c).unwrap();
+        let n2 = press_schechter_dndlnm(1e12, 0.0, &c).unwrap();
+        let n3 = press_schechter_dndlnm(1e14, 0.0, &c).unwrap();
         assert!(n1 > n2, "more low-mass halos");
         assert!(n2 > n3, "fewer high-mass halos");
     }
 
     #[test]
     fn test_press_schechter_positive() {
+        let c = cosmo();
         for m in [1e8, 1e10, 1e12, 1e14] {
-            let n = press_schechter_dndlnm(m, 0.0).unwrap();
+            let n = press_schechter_dndlnm(m, 0.0, &c).unwrap();
             assert!(n > 0.0, "dn/dlnM should be positive for M={m}");
         }
     }
 
     #[test]
     fn test_bias_cluster_strongly_biased() {
-        let b = bias_mo_white(1e15, 0.0).unwrap();
+        let c = cosmo();
+        let b = bias_mo_white(1e15, 0.0, &c).unwrap();
         assert!(b > 2.0, "cluster bias: {b}");
     }
 
     #[test]
     fn test_bias_increases_with_mass() {
-        let b1 = bias_mo_white(1e11, 0.0).unwrap();
-        let b2 = bias_mo_white(1e13, 0.0).unwrap();
-        let b3 = bias_mo_white(1e15, 0.0).unwrap();
+        let c = cosmo();
+        let b1 = bias_mo_white(1e11, 0.0, &c).unwrap();
+        let b2 = bias_mo_white(1e13, 0.0, &c).unwrap();
+        let b3 = bias_mo_white(1e15, 0.0, &c).unwrap();
         assert!(b3 > b2 && b2 > b1, "bias should increase with mass");
     }
 
@@ -878,33 +770,36 @@ mod tests {
 
     #[test]
     fn test_sheth_tormen_positive() {
+        let c = cosmo();
         for m in [1e8, 1e10, 1e12, 1e14] {
-            let n = sheth_tormen_dndlnm(m, 0.0).unwrap();
+            let n = sheth_tormen_dndlnm(m, 0.0, &c).unwrap();
             assert!(n > 0.0, "ST dn/dlnM should be positive for M={m}");
         }
     }
 
     #[test]
     fn test_sheth_tormen_decreases_with_mass() {
-        let n1 = sheth_tormen_dndlnm(1e10, 0.0).unwrap();
-        let n2 = sheth_tormen_dndlnm(1e12, 0.0).unwrap();
-        let n3 = sheth_tormen_dndlnm(1e14, 0.0).unwrap();
+        let c = cosmo();
+        let n1 = sheth_tormen_dndlnm(1e10, 0.0, &c).unwrap();
+        let n2 = sheth_tormen_dndlnm(1e12, 0.0, &c).unwrap();
+        let n3 = sheth_tormen_dndlnm(1e14, 0.0, &c).unwrap();
         assert!(n1 > n2 && n2 > n3);
     }
 
     #[test]
     fn test_sheth_tormen_more_massive_than_ps() {
-        // ST predicts more massive halos at the high-mass end (ν >> 1)
-        let st = sheth_tormen_dndlnm(1e15, 0.0).unwrap();
-        let ps = press_schechter_dndlnm(1e15, 0.0).unwrap();
+        let c = cosmo();
+        let st = sheth_tormen_dndlnm(1e15, 0.0, &c).unwrap();
+        let ps = press_schechter_dndlnm(1e15, 0.0, &c).unwrap();
         assert!(st > ps, "ST={st} should exceed PS={ps} at high mass");
     }
 
     #[test]
     fn test_bias_sheth_tormen_increases_with_mass() {
-        let b1 = bias_sheth_tormen(1e11, 0.0).unwrap();
-        let b2 = bias_sheth_tormen(1e13, 0.0).unwrap();
-        let b3 = bias_sheth_tormen(1e15, 0.0).unwrap();
+        let c = cosmo();
+        let b1 = bias_sheth_tormen(1e11, 0.0, &c).unwrap();
+        let b2 = bias_sheth_tormen(1e13, 0.0, &c).unwrap();
+        let b3 = bias_sheth_tormen(1e15, 0.0, &c).unwrap();
         assert!(b3 > b2 && b2 > b1, "ST bias should increase with mass");
     }
 
@@ -912,34 +807,38 @@ mod tests {
 
     #[test]
     fn test_tinker08_positive() {
+        let c = cosmo();
         for m in [1e8, 1e10, 1e12, 1e14] {
-            let n = tinker08_dndlnm(m, 0.0).unwrap();
+            let n = tinker08_dndlnm(m, 0.0, &c).unwrap();
             assert!(n > 0.0, "Tinker08 dn/dlnM should be positive for M={m}");
         }
     }
 
     #[test]
     fn test_tinker08_decreases_with_mass() {
-        let n1 = tinker08_dndlnm(1e10, 0.0).unwrap();
-        let n2 = tinker08_dndlnm(1e12, 0.0).unwrap();
-        let n3 = tinker08_dndlnm(1e14, 0.0).unwrap();
+        let c = cosmo();
+        let n1 = tinker08_dndlnm(1e10, 0.0, &c).unwrap();
+        let n2 = tinker08_dndlnm(1e12, 0.0, &c).unwrap();
+        let n3 = tinker08_dndlnm(1e14, 0.0, &c).unwrap();
         assert!(n1 > n2 && n2 > n3);
     }
 
     #[test]
     fn test_tinker08_invalid() {
-        assert!(tinker08_dndlnm(0.0, 0.0).is_err());
-        assert!(tinker08_dndlnm(-1e12, 0.0).is_err());
-        assert!(tinker08_dndlnm(f64::NAN, 0.0).is_err());
+        let c = cosmo();
+        assert!(tinker08_dndlnm(0.0, 0.0, &c).is_err());
+        assert!(tinker08_dndlnm(-1e12, 0.0, &c).is_err());
+        assert!(tinker08_dndlnm(f64::NAN, 0.0, &c).is_err());
     }
 
     // -- Tinker 2010 bias --
 
     #[test]
     fn test_bias_tinker10_increases_with_mass() {
-        let b1 = bias_tinker10(1e11, 0.0).unwrap();
-        let b2 = bias_tinker10(1e13, 0.0).unwrap();
-        let b3 = bias_tinker10(1e15, 0.0).unwrap();
+        let c = cosmo();
+        let b1 = bias_tinker10(1e11, 0.0, &c).unwrap();
+        let b2 = bias_tinker10(1e13, 0.0, &c).unwrap();
+        let b3 = bias_tinker10(1e15, 0.0, &c).unwrap();
         assert!(
             b3 > b2 && b2 > b1,
             "Tinker10 bias should increase with mass"
@@ -948,7 +847,8 @@ mod tests {
 
     #[test]
     fn test_bias_tinker10_cluster_biased() {
-        let b = bias_tinker10(1e14, 0.0).unwrap();
+        let c = cosmo();
+        let b = bias_tinker10(1e14, 0.0, &c).unwrap();
         assert!(b > 1.0, "cluster bias = {b}");
     }
 
@@ -970,7 +870,6 @@ mod tests {
 
     #[test]
     fn test_wechsler_higher_alpha_faster_growth() {
-        // Higher α → more rapid late-time growth → steeper M(z)
         let m_slow = mass_accretion_wechsler(1e12, 2.0, 0.5).unwrap();
         let m_fast = mass_accretion_wechsler(1e12, 2.0, 1.5).unwrap();
         assert!(m_slow > m_fast, "higher α → lower M(z>0)");
@@ -1030,7 +929,8 @@ mod tests {
 
     #[test]
     fn test_sham_stellar_mass_reasonable() {
-        let log_ms = sham_stellar_mass(1e12, 0.0, 10.65, 4.5e-3, -1.2).unwrap();
+        let c = cosmo();
+        let log_ms = sham_stellar_mass(1e12, 0.0, 10.65, 4.5e-3, -1.2, &c).unwrap();
         assert!(
             log_ms > 9.0 && log_ms < 12.0,
             "MW halo stellar mass log M* = {log_ms}"
@@ -1039,15 +939,17 @@ mod tests {
 
     #[test]
     fn test_sham_increases_with_halo_mass() {
-        let ms1 = sham_stellar_mass(1e11, 0.0, 10.65, 4.5e-3, -1.2).unwrap();
-        let ms2 = sham_stellar_mass(1e12, 0.0, 10.65, 4.5e-3, -1.2).unwrap();
-        let ms3 = sham_stellar_mass(1e13, 0.0, 10.65, 4.5e-3, -1.2).unwrap();
+        let c = cosmo();
+        let ms1 = sham_stellar_mass(1e11, 0.0, 10.65, 4.5e-3, -1.2, &c).unwrap();
+        let ms2 = sham_stellar_mass(1e12, 0.0, 10.65, 4.5e-3, -1.2, &c).unwrap();
+        let ms3 = sham_stellar_mass(1e13, 0.0, 10.65, 4.5e-3, -1.2, &c).unwrap();
         assert!(ms3 > ms2 && ms2 > ms1, "more massive halos → more stars");
     }
 
     #[test]
     fn test_sham_invalid() {
-        assert!(sham_stellar_mass(0.0, 0.0, 10.65, 4.5e-3, -1.2).is_err());
-        assert!(sham_stellar_mass(f64::NAN, 0.0, 10.65, 4.5e-3, -1.2).is_err());
+        let c = cosmo();
+        assert!(sham_stellar_mass(0.0, 0.0, 10.65, 4.5e-3, -1.2, &c).is_err());
+        assert!(sham_stellar_mass(f64::NAN, 0.0, 10.65, 4.5e-3, -1.2, &c).is_err());
     }
 }
