@@ -18,7 +18,7 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 - `src/error.rs` — `BrahmandaError` enum with `thiserror`, input/output validation helpers
 - `src/constants.rs` — Planck 2018 cosmological parameters, physical constants (SI)
 - `src/morphology.rs` — Galaxy classification, Sersic profile, Faber-Jackson, Tully-Fisher
-- `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity, Press-Schechter mass function, Mo & White bias
+- `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity, Press-Schechter & Sheth-Tormen mass functions, Mo & White / ST bias, mass accretion history (Wechsler, McBride), SHAM
 - `src/cosmic_web.rs` — Tidal tensor classification, density contrast, correlation function, HSW void profile
 - `src/power_spectrum.rs` — Transfer function (no-wiggle + BAO), growth factor, primordial power, σ(R), dark energy w(z), comoving distance, angular power spectrum C_l
 - `src/logging.rs` — tracing-subscriber init (feature-gated)
@@ -54,6 +54,13 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 - [x] Void profile models (Hamaus et al.)
 - [x] Angular power spectrum C_l
 - [x] Dark energy equation of state w(z) models
+
+### P3 — Halo Extensions
+
+- [x] Sheth-Tormen mass function (ellipsoidal collapse)
+- [x] Sheth-Tormen halo bias
+- [x] Halo mass accretion history (Wechsler 2002, McBride 2009)
+- [x] Subhalo abundance matching (Schechter SMF + SHAM)
 
 ### Integration: hisab-mimamsa Scale 5
 
