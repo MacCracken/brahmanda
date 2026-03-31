@@ -7,7 +7,7 @@
 - **Type**: Flat library crate
 - **License**: GPL-3.0-only
 - **MSRV**: 1.89
-- **Version**: SemVer 0.1.0
+- **Version**: SemVer 1.0.0
 
 ## Consumers
 
@@ -18,9 +18,9 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 - `src/error.rs` — `BrahmandaError` enum with `thiserror`, input/output validation helpers
 - `src/constants.rs` — Planck 2018 cosmological parameters, physical constants (SI)
 - `src/morphology.rs` — Galaxy classification, Sersic profile, Faber-Jackson, Tully-Fisher, mass-metallicity, Madau-Dickinson SFR, stellar mass density
-- `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity, Press-Schechter & Sheth-Tormen mass functions, Mo & White / ST bias, mass accretion history (Wechsler, McBride), SHAM
+- `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity, Press-Schechter / Sheth-Tormen / Tinker08 mass functions, Mo-White / ST / Tinker10 bias, mass accretion history (Wechsler, McBride), SHAM
 - `src/cosmic_web.rs` — Tidal tensor classification, density contrast, correlation function, HSW void profile, void excursion set, Hessian morphology, filamentarity, Minkowski functionals
-- `src/power_spectrum.rs` — Transfer function (no-wiggle + BAO), growth factor, primordial power, σ(R), dark energy w(z), comoving distance, angular power spectrum C_l, Halofit nonlinear P(k), luminosity distance, distance modulus, Sachs-Wolfe (ordinary + ISW)
+- `src/power_spectrum.rs` — Transfer function (no-wiggle + BAO), growth factor & rate, primordial power, σ(R), dark energy w(z), distances (comoving, luminosity, angular diameter), comoving volume, lookback time, age of universe, angular C_l, Halofit nonlinear P(k), distance modulus, Sachs-Wolfe (ordinary + ISW)
 - `src/logging.rs` — tracing-subscriber init (feature-gated)
 
 ## Dependencies
@@ -79,6 +79,26 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 - [x] Mass-metallicity relation (Tremonti 2004 + redshift evolution)
 - [x] Madau-Dickinson cosmic SFR density
 - [x] Cumulative stellar mass density
+
+### P5 — v1.0 Completeness
+
+- [x] Angular diameter distance d_A(z)
+- [x] Comoving volume element dV/dz
+- [x] Lookback time and age of universe
+- [x] Growth rate f(z) = d ln D / d ln a
+- [x] Tinker 2008 mass function (calibrated, Δ=200)
+- [x] Tinker 2010 halo bias (calibrated, Δ=200)
+
+### Review Repairs (pre-publish)
+
+- [x] Fix `cargo fmt` diff in `cosmic_web.rs:350` (array formatting)
+- [x] Add doc comments to all constants in `constants.rs` — cite Planck 2018 / CODATA per-constant
+- [x] Replace `partial_cmp().unwrap()` with `total_cmp()` in `cosmic_web.rs` eigenvalue sort for NaN safety
+- [x] Add doc note on `sigma_r` power-law approximation — consumers expecting full integral should be aware
+- [x] Display impls for all public enums
+- [x] PartialEq for public structs with f64 fields
+- [x] GitHub Actions CI workflow
+- [x] Physics formula accuracy audit (all 10 core formulas verified)
 
 ### Integration: hisab-mimamsa Scale 5
 

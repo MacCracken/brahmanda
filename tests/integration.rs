@@ -382,7 +382,10 @@ mod physical_invariants {
             assert!(
                 masses[i] > masses[i - 1],
                 "enclosed mass not monotonic: M({})={} <= M({})={}",
-                radii[i], masses[i], radii[i - 1], masses[i - 1]
+                radii[i],
+                masses[i],
+                radii[i - 1],
+                masses[i - 1]
             );
         }
     }
@@ -400,7 +403,10 @@ mod physical_invariants {
             assert!(
                 densities[i] < densities[i - 1],
                 "NFW density not decreasing: ρ({})={} >= ρ({})={}",
-                radii[i], densities[i], radii[i - 1], densities[i - 1]
+                radii[i],
+                densities[i],
+                radii[i - 1],
+                densities[i - 1]
             );
         }
     }
@@ -416,7 +422,10 @@ mod physical_invariants {
             assert!(
                 growths[i] < growths[i - 1],
                 "growth factor not decreasing: D(z={})={} >= D(z={})={}",
-                redshifts[i], growths[i], redshifts[i - 1], growths[i - 1]
+                redshifts[i],
+                growths[i],
+                redshifts[i - 1],
+                growths[i - 1]
             );
         }
     }
@@ -467,7 +476,10 @@ mod physical_invariants {
             assert!(
                 radii[i] > radii[i - 1],
                 "virial radius not increasing: R({})={} <= R({})={}",
-                masses[i], radii[i], masses[i - 1], radii[i - 1]
+                masses[i],
+                radii[i],
+                masses[i - 1],
+                radii[i - 1]
             );
         }
     }
@@ -484,7 +496,10 @@ mod physical_invariants {
             assert!(
                 concs[i] < concs[i - 1],
                 "concentration not decreasing: c({})={} >= c({})={}",
-                masses[i], concs[i], masses[i - 1], concs[i - 1]
+                masses[i],
+                concs[i],
+                masses[i - 1],
+                concs[i - 1]
             );
         }
     }
@@ -531,5 +546,111 @@ mod physical_invariants {
             (ratio - expected).abs() < 1e-6,
             "void radius scaling: {ratio}, expected {expected}"
         );
+    }
+
+    #[test]
+    fn comoving_distance_planck_z1() {
+        // Planck 2018 ΛCDM: χ(z=1) ≈ 3364 Mpc (within ~5%)
+        let chi = power_spectrum::comoving_distance(1.0, 0.315, -1.0, 0.0).unwrap();
+        assert!(
+            (chi - 3364.0).abs() / 3364.0 < 0.05,
+            "χ(z=1) = {chi}, expected ~3364 Mpc"
+        );
+    }
+
+    #[test]
+    fn luminosity_distance_z1() {
+        // d_L(z=1) = (1+z) × χ(z=1) ≈ 6728 Mpc
+        let dl = power_spectrum::luminosity_distance(1.0, 0.315, -1.0, 0.0).unwrap();
+        assert!(
+            (dl - 6728.0).abs() / 6728.0 < 0.05,
+            "d_L(z=1) = {dl}, expected ~6728 Mpc"
+        );
+    }
+
+    #[test]
+    fn nfw_circular_velocity_mw() {
+        // MW at solar radius (~8 kpc): v_c ≈ 220 km/s for typical ρ_s, r_s
+        let halo = halo::HaloProperties::from_mass(1e12).unwrap();
+        // Estimate ρ_s from virial mass: M_vir = 4π ρ_s r_s³ [ln(1+c) - c/(1+c)]
+        let c = halo.concentration;
+        let r_s = halo.r_s_kpc;
+        let g_c = (1.0 + c).ln() - c / (1.0 + c);
+        let rho_s = halo.m_vir_msun / (4.0 * std::f64::consts::PI * r_s.powi(3) * g_c);
+        let v = halo::nfw_circular_velocity(8.0, rho_s, r_s).unwrap();
+        assert!(
+            v > 100.0 && v < 400.0,
+            "MW v_c at 8 kpc: {v} km/s, expected ~220"
+        );
+    }
+
+    #[test]
+    fn press_schechter_value_range() {
+        // At M=10^12 M_sun, z=0: dn/dlnM should be ~10^-4 to 10^-2 h³/Mpc³
+        let n = halo::press_schechter_dndlnm(1e12, 0.0).unwrap();
+        assert!(n > 1e-6 && n < 1.0, "PS dn/dlnM(10^12, z=0) = {n}");
+    }
+
+    #[test]
+    fn sfr_density_z0_value() {
+        // ρ_SFR(z=0) ≈ 0.015 M_sun/yr/Mpc³ (Madau & Dickinson 2014, Eq. 15)
+        let sfr = morphology::sfr_density_madau_dickinson(0.0).unwrap();
+        assert!(
+            (sfr - 0.015).abs() / 0.015 < 0.3,
+            "ρ_SFR(z=0) = {sfr}, expected ~0.015"
+        );
+    }
+}
+
+// ============================================================
+// Display trait tests
+// ============================================================
+
+mod display_traits {
+    use super::*;
+    use brahmanda::cosmic_web::HessianMorphology;
+
+    #[test]
+    fn hubble_type_display() {
+        assert_eq!(HubbleType::Elliptical.to_string(), "Elliptical");
+        assert_eq!(HubbleType::BarredSpiral.to_string(), "Barred Spiral");
+        assert_eq!(HubbleType::Irregular.to_string(), "Irregular");
+    }
+
+    #[test]
+    fn web_environment_display() {
+        assert_eq!(WebEnvironment::Node.to_string(), "Node");
+        assert_eq!(WebEnvironment::Void.to_string(), "Void");
+    }
+
+    #[test]
+    fn hessian_morphology_display() {
+        assert_eq!(HessianMorphology::Blob.to_string(), "Blob");
+        assert_eq!(HessianMorphology::Filament.to_string(), "Filament");
+        assert_eq!(HessianMorphology::Wall.to_string(), "Wall");
+        assert_eq!(HessianMorphology::Background.to_string(), "Background");
+    }
+}
+
+// ============================================================
+// Additional serde roundtrip
+// ============================================================
+
+mod serde_roundtrip_extended {
+    use brahmanda::cosmic_web::HessianMorphology;
+
+    #[test]
+    fn hessian_morphology_roundtrip() {
+        let variants = [
+            HessianMorphology::Blob,
+            HessianMorphology::Filament,
+            HessianMorphology::Wall,
+            HessianMorphology::Background,
+        ];
+        for &v in &variants {
+            let json = serde_json::to_string(&v).unwrap();
+            let back: HessianMorphology = serde_json::from_str(&json).unwrap();
+            assert_eq!(v, back, "roundtrip failed for {v:?}");
+        }
     }
 }

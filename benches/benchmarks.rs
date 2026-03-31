@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-use brahmanda::{halo, morphology, power_spectrum};
 use brahmanda::constants::*;
+use brahmanda::{halo, morphology, power_spectrum};
 
 fn bench_nfw_density(c: &mut Criterion) {
     c.bench_function("nfw_density", |b| {
@@ -11,7 +11,9 @@ fn bench_nfw_density(c: &mut Criterion) {
 
 fn bench_sersic_profile(c: &mut Criterion) {
     c.bench_function("sersic_profile", |b| {
-        b.iter(|| morphology::sersic_profile(black_box(5.0), black_box(10.0), black_box(4.0)).unwrap())
+        b.iter(|| {
+            morphology::sersic_profile(black_box(5.0), black_box(10.0), black_box(4.0)).unwrap()
+        })
     });
 }
 

@@ -7,8 +7,8 @@ use std::f64::consts::PI;
 
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{G, KPC_M, MPC_M, M_SUN, OMEGA_M, RHO_CRIT};
-use crate::error::{ensure_finite, require_finite, BrahmandaError};
+use crate::constants::{G, KPC_M, M_SUN, MPC_M, OMEGA_M, RHO_CRIT};
+use crate::error::{BrahmandaError, ensure_finite, require_finite};
 use crate::power_spectrum;
 
 /// Planck 2018 dimensionless Hubble parameter.
@@ -160,7 +160,7 @@ pub fn concentration_dutton_maccio(m_vir_msun: f64) -> Result<f64, BrahmandaErro
 }
 
 /// Halo properties bundle.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub struct HaloProperties {
     /// Virial mass (solar masses).
@@ -360,11 +360,8 @@ pub fn sheth_tormen_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
     let a_nu2 = ST_A * nu * nu;
 
     // f_ST(ν) = A √(2a/π) ν [1 + (aν²)^(-p)] exp(-aν²/2)
-    let f_nu = ST_BIG_A
-        * (2.0 * ST_A / PI).sqrt()
-        * nu
-        * (1.0 + a_nu2.powf(-ST_P))
-        * (-a_nu2 / 2.0).exp();
+    let f_nu =
+        ST_BIG_A * (2.0 * ST_A / PI).sqrt() * nu * (1.0 + a_nu2.powf(-ST_P)) * (-a_nu2 / 2.0).exp();
 
     let dndlnm = mass_function_from_fnu(f_nu, m_msun);
     ensure_finite(dndlnm, "sheth_tormen_dndlnm")
@@ -385,9 +382,111 @@ pub fn sheth_tormen_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
 pub fn bias_sheth_tormen(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
     let nu = peak_height(m_msun, z)?;
     let a_nu2 = ST_A * nu * nu;
-    let b = 1.0 + (a_nu2 - 1.0) / DELTA_C
-        + 2.0 * ST_P / (DELTA_C * (1.0 + a_nu2.powf(ST_P)));
+    let b = 1.0 + (a_nu2 - 1.0) / DELTA_C + 2.0 * ST_P / (DELTA_C * (1.0 + a_nu2.powf(ST_P)));
     ensure_finite(b, "bias_sheth_tormen")
+}
+
+// ============================================================
+// Tinker (2008) mass function & (2010) bias
+// ============================================================
+
+/// Tinker et al. (2008) halo mass function: dn/dlnM.
+///
+/// Calibrated from N-body simulations, this is the standard mass function
+/// used in modern analyses. Coefficients are for Δ = 200 (M200m definition).
+///
+/// f(σ) = A [(σ/b)^(-a) + 1] exp(-c/σ²)
+///
+/// with z-dependent parameters A, a, b, c from Table 2 + Eq. 5–8.
+///
+/// # Arguments
+/// * `m_msun` — Halo mass in solar masses (M200m).
+/// * `z` — Redshift.
+///
+/// ```
+/// use brahmanda::halo::{tinker08_dndlnm, press_schechter_dndlnm};
+///
+/// // More low-mass halos than high-mass
+/// let n_low = tinker08_dndlnm(1e10, 0.0).unwrap();
+/// let n_high = tinker08_dndlnm(1e14, 0.0).unwrap();
+/// assert!(n_low > n_high);
+///
+/// // Tinker08 gives different abundance than PS
+/// let n_ps = press_schechter_dndlnm(1e14, 0.0).unwrap();
+/// assert!((n_high - n_ps).abs() > 0.0);
+/// ```
+pub fn tinker08_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+    require_finite(m_msun, "tinker08_dndlnm")?;
+    require_finite(z, "tinker08_dndlnm")?;
+    if m_msun <= 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "tinker08_dndlnm: mass must be positive".to_string(),
+        ));
+    }
+
+    let nu = peak_height(m_msun, z)?;
+    let sigma = DELTA_C / nu;
+
+    // Tinker 2008 Table 2 coefficients for Δ = 200 at z = 0
+    let a0 = 0.186;
+    let a_a = 1.47;
+    let a_b = 2.57;
+    let a_c = 1.19;
+
+    // Redshift evolution (Tinker 2008, Eq. 5–8)
+    let big_a = a0 * (1.0 + z).powf(-0.14);
+    let a = a_a * (1.0 + z).powf(-0.06);
+    let log_alpha = -(0.75 / ((z / 2.3).powi(2) + 1.0).log10()).max(-10.0);
+    let b = a_b * (1.0 + z).powf(-10.0_f64.powf(log_alpha));
+    let c = a_c;
+
+    // f(σ) = A [(σ/b)^(-a) + 1] exp(-c/σ²)
+    let f_sigma = big_a * ((sigma / b).powf(-a) + 1.0) * (-c / (sigma * sigma)).exp();
+
+    let dndlnm = mass_function_from_fnu(f_sigma, m_msun);
+    ensure_finite(dndlnm, "tinker08_dndlnm")
+}
+
+/// Tinker et al. (2010) linear halo bias.
+///
+/// Calibrated bias function for halos defined at Δ = 200:
+///
+/// b(ν) = 1 - A ν^a / (ν^a + δ_c^a) + B ν^b + C ν^c
+///
+/// where ν = δ_c/σ is the peak height.
+///
+/// # Arguments
+/// * `m_msun` — Halo mass in solar masses.
+/// * `z` — Redshift.
+///
+/// ```
+/// use brahmanda::halo::bias_tinker10;
+///
+/// // Massive halos are biased
+/// let b = bias_tinker10(1e14, 0.0).unwrap();
+/// assert!(b > 1.0, "cluster bias = {b}");
+///
+/// // Bias increases with mass
+/// let b_low = bias_tinker10(1e11, 0.0).unwrap();
+/// assert!(b < bias_tinker10(1e15, 0.0).unwrap());
+/// assert!(b > b_low);
+/// ```
+pub fn bias_tinker10(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+    let nu = peak_height(m_msun, z)?;
+
+    // Tinker 2010 Table 2 coefficients for Δ = 200
+    let big_a = 1.005;
+    let a_a = 0.378;
+    let big_b = 0.183;
+    let a_b = 1.5;
+    let big_c = 0.265;
+    let a_c = 2.4;
+
+    let nu_a = nu.powf(a_a);
+    let b = 1.0 - big_a * nu_a / (nu_a + DELTA_C.powf(a_a))
+        + big_b * nu.powf(a_b)
+        + big_c * nu.powf(a_c);
+    ensure_finite(b, "bias_tinker10")
 }
 
 // ============================================================
@@ -418,11 +517,7 @@ pub fn bias_sheth_tormen(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
 /// let m1 = mass_accretion_wechsler(m0, 1.0, 1.0).unwrap();
 /// assert!(m1 < m0);
 /// ```
-pub fn mass_accretion_wechsler(
-    m0_msun: f64,
-    z: f64,
-    alpha: f64,
-) -> Result<f64, BrahmandaError> {
+pub fn mass_accretion_wechsler(m0_msun: f64, z: f64, alpha: f64) -> Result<f64, BrahmandaError> {
     require_finite(m0_msun, "mass_accretion_wechsler")?;
     require_finite(z, "mass_accretion_wechsler")?;
     require_finite(alpha, "mass_accretion_wechsler")?;
@@ -811,6 +906,50 @@ mod tests {
         let b2 = bias_sheth_tormen(1e13, 0.0).unwrap();
         let b3 = bias_sheth_tormen(1e15, 0.0).unwrap();
         assert!(b3 > b2 && b2 > b1, "ST bias should increase with mass");
+    }
+
+    // -- Tinker 2008 mass function --
+
+    #[test]
+    fn test_tinker08_positive() {
+        for m in [1e8, 1e10, 1e12, 1e14] {
+            let n = tinker08_dndlnm(m, 0.0).unwrap();
+            assert!(n > 0.0, "Tinker08 dn/dlnM should be positive for M={m}");
+        }
+    }
+
+    #[test]
+    fn test_tinker08_decreases_with_mass() {
+        let n1 = tinker08_dndlnm(1e10, 0.0).unwrap();
+        let n2 = tinker08_dndlnm(1e12, 0.0).unwrap();
+        let n3 = tinker08_dndlnm(1e14, 0.0).unwrap();
+        assert!(n1 > n2 && n2 > n3);
+    }
+
+    #[test]
+    fn test_tinker08_invalid() {
+        assert!(tinker08_dndlnm(0.0, 0.0).is_err());
+        assert!(tinker08_dndlnm(-1e12, 0.0).is_err());
+        assert!(tinker08_dndlnm(f64::NAN, 0.0).is_err());
+    }
+
+    // -- Tinker 2010 bias --
+
+    #[test]
+    fn test_bias_tinker10_increases_with_mass() {
+        let b1 = bias_tinker10(1e11, 0.0).unwrap();
+        let b2 = bias_tinker10(1e13, 0.0).unwrap();
+        let b3 = bias_tinker10(1e15, 0.0).unwrap();
+        assert!(
+            b3 > b2 && b2 > b1,
+            "Tinker10 bias should increase with mass"
+        );
+    }
+
+    #[test]
+    fn test_bias_tinker10_cluster_biased() {
+        let b = bias_tinker10(1e14, 0.0).unwrap();
+        assert!(b > 1.0, "cluster bias = {b}");
     }
 
     // -- Mass accretion history --

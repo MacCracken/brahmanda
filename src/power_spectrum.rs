@@ -5,7 +5,7 @@
 //! predicts structure at all scales and redshifts.
 
 use crate::constants::{C, H0_KM_S_MPC, N_S, OMEGA_M, SIGMA_8};
-use crate::error::{ensure_finite, require_finite, BrahmandaError};
+use crate::error::{BrahmandaError, ensure_finite, require_finite};
 
 /// Eisenstein-Hu transfer function T(k) — no-wiggle approximation.
 ///
@@ -50,7 +50,8 @@ pub fn transfer_function_eh(
     let omega_bh2 = omega_b * h * h;
 
     // Sound horizon (Eq. 26 of Eisenstein & Hu 1998)
-    let s = 44.5 * (omega_mh2).sqrt().recip()
+    let s = 44.5
+        * (omega_mh2).sqrt().recip()
         * (1.0 + (omega_bh2 / 0.024).powf(0.46)).recip()
         * (omega_mh2).powf(0.25)
         * 100.0; // rough approximation in Mpc/h
@@ -60,7 +61,8 @@ pub fn transfer_function_eh(
         + 0.38 * (omega_bh2 / omega_mh2).ln() * (omega_b / omega_m).powi(2);
 
     // Shape parameter
-    let gamma_eff = omega_m * h * (alpha_gamma + (1.0 - alpha_gamma) / (1.0 + (0.43 * k_mpc * s).powi(4)));
+    let gamma_eff =
+        omega_m * h * (alpha_gamma + (1.0 - alpha_gamma) / (1.0 + (0.43 * k_mpc * s).powi(4)));
 
     // BBKS transfer function with effective shape
     let q = k_mpc * theta * theta / gamma_eff;
@@ -142,8 +144,8 @@ pub fn transfer_function_eh_wiggle(
         * (((1.0 + r_d).sqrt() + (r_d + r_eq).sqrt()) / (1.0 + r_eq.sqrt())).ln();
 
     // Eq. 7: Silk damping scale (1/Mpc h)
-    let k_silk = 1.6 * omega_bh2.powf(0.52) * omega_mh2.powf(0.73)
-        * (1.0 + (10.4 * omega_mh2).powf(-0.95));
+    let k_silk =
+        1.6 * omega_bh2.powf(0.52) * omega_mh2.powf(0.73) * (1.0 + (10.4 * omega_mh2).powf(-0.95));
 
     // Eq. 10: CDM alpha_c
     let a1 = (46.9 * omega_mh2).powf(0.670) * (1.0 + (32.1 * omega_mh2).powf(-0.532));
@@ -172,9 +174,7 @@ pub fn transfer_function_eh_wiggle(
     // Eq. 8: G(y) function for baryon suppression
     let y = z_eq / z_d;
     let sqrt_1py = (1.0 + y).sqrt();
-    let g_y = y
-        * (-6.0 * sqrt_1py
-            + (2.0 + 3.0 * y) * ((sqrt_1py + 1.0) / (sqrt_1py - 1.0)).ln());
+    let g_y = y * (-6.0 * sqrt_1py + (2.0 + 3.0 * y) * ((sqrt_1py + 1.0) / (sqrt_1py - 1.0)).ln());
 
     // Eq. 14: baryon alpha_b
     let alpha_b = 2.07 * k_eq * s * (1.0 + r_d).powf(-3.0 / 4.0) * g_y;
@@ -199,8 +199,7 @@ pub fn transfer_function_eh_wiggle(
 
     let t0_b_val = t0(q, 1.0, 1.0);
     let t_b = (t0_b_val / (1.0 + (ks / 5.2).powi(2))
-        + alpha_b / (1.0 + (beta_b / ks).powi(3))
-            * (-(k_mpc / k_silk).powf(1.4)).exp())
+        + alpha_b / (1.0 + (beta_b / ks).powi(3)) * (-(k_mpc / k_silk).powf(1.4)).exp())
         * j0_tilde;
 
     // Eq. 16: full transfer function
@@ -265,7 +264,8 @@ pub fn growth_factor(z: f64, omega_m: f64) -> Result<f64, BrahmandaError> {
         let om_z = omega_m / (omega_m + omega_lambda * a * a * a);
         let ol_z = omega_lambda * a * a * a / (omega_m + omega_lambda * a * a * a);
         // CPT92 approximation
-        let d = 2.5 * om_z / (om_z.powf(4.0 / 7.0) - ol_z + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0));
+        let d =
+            2.5 * om_z / (om_z.powf(4.0 / 7.0) - ol_z + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0));
         d * a
     };
 
@@ -279,8 +279,12 @@ pub fn growth_factor(z: f64, omega_m: f64) -> Result<f64, BrahmandaError> {
 /// Simplified: scales σ₈ by the growth factor and a radius-dependent factor.
 /// σ(R, z) ≈ σ₈ × D(z) × (8/R)^((n_s+3)/6)
 ///
-/// This is an approximation; the exact computation requires integration
-/// over the full power spectrum with a top-hat window function.
+/// **Note:** This is a power-law approximation calibrated at R = 8 Mpc/h.
+/// The exact computation requires integration over the full matter power
+/// spectrum with a real-space top-hat window function W(kR). This
+/// approximation is adequate for order-of-magnitude work and internal use
+/// (e.g. peak height, Halofit scale finding) but consumers requiring
+/// sub-percent accuracy should integrate P(k) directly.
 ///
 /// ```
 /// use brahmanda::power_spectrum::sigma_r;
@@ -415,12 +419,7 @@ pub fn hubble_parameter_ratio(
 /// let d_phantom = growth_factor_w(1.0, 0.315, -1.2, 0.0).unwrap();
 /// assert!(d_phantom > d);
 /// ```
-pub fn growth_factor_w(
-    z: f64,
-    omega_m: f64,
-    w0: f64,
-    wa: f64,
-) -> Result<f64, BrahmandaError> {
+pub fn growth_factor_w(z: f64, omega_m: f64, w0: f64, wa: f64) -> Result<f64, BrahmandaError> {
     require_finite(z, "growth_factor_w")?;
     require_finite(omega_m, "growth_factor_w")?;
     require_finite(w0, "growth_factor_w")?;
@@ -440,8 +439,8 @@ pub fn growth_factor_w(
         let om_z = omega_m * (1.0 + zz).powi(3) / e2;
         let ol_z = 1.0 - om_z;
         // CPT92 approximation (works well for slowly-varying w)
-        let d = 2.5 * om_z
-            / (om_z.powf(4.0 / 7.0) - ol_z + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0));
+        let d =
+            2.5 * om_z / (om_z.powf(4.0 / 7.0) - ol_z + (1.0 + om_z / 2.0) * (1.0 + ol_z / 70.0));
         Ok(d * a)
     };
 
@@ -465,12 +464,7 @@ pub fn growth_factor_w(
 /// let chi = comoving_distance(1.0, 0.315, -1.0, 0.0).unwrap();
 /// assert!(chi > 2000.0 && chi < 5000.0); // ~3300 Mpc
 /// ```
-pub fn comoving_distance(
-    z: f64,
-    omega_m: f64,
-    w0: f64,
-    wa: f64,
-) -> Result<f64, BrahmandaError> {
+pub fn comoving_distance(z: f64, omega_m: f64, w0: f64, wa: f64) -> Result<f64, BrahmandaError> {
     require_finite(z, "comoving_distance")?;
     if z < 0.0 {
         return Err(BrahmandaError::InvalidStructure(
@@ -616,19 +610,14 @@ pub fn angular_power_spectrum_limber(
 /// let dl = luminosity_distance(1.0, 0.315, -1.0, 0.0).unwrap();
 /// assert!(dl > 5000.0 && dl < 8000.0); // ~6600 Mpc
 /// ```
-pub fn luminosity_distance(
-    z: f64,
-    omega_m: f64,
-    w0: f64,
-    wa: f64,
-) -> Result<f64, BrahmandaError> {
+pub fn luminosity_distance(z: f64, omega_m: f64, w0: f64, wa: f64) -> Result<f64, BrahmandaError> {
     let chi = comoving_distance(z, omega_m, w0, wa)?;
     ensure_finite((1.0 + z) * chi, "luminosity_distance")
 }
 
 /// Distance modulus μ(z) for SN Ia cosmology.
 ///
-/// μ = 5 log₁₀(d_L / 10 pc) = 5 log₁₀(d_L [Mpc]) + 25
+/// μ = 5 log₁₀(d_L / 10 pc) = 5 log₁₀(d_L \[Mpc\]) + 25
 ///
 /// ```
 /// use brahmanda::power_spectrum::distance_modulus;
@@ -641,12 +630,7 @@ pub fn luminosity_distance(
 /// let mu = distance_modulus(1.0, 0.315, -1.0, 0.0).unwrap();
 /// assert!(mu > 42.0 && mu < 46.0, "μ(z=1) = {mu}");
 /// ```
-pub fn distance_modulus(
-    z: f64,
-    omega_m: f64,
-    w0: f64,
-    wa: f64,
-) -> Result<f64, BrahmandaError> {
+pub fn distance_modulus(z: f64, omega_m: f64, w0: f64, wa: f64) -> Result<f64, BrahmandaError> {
     require_finite(z, "distance_modulus")?;
     if z <= 0.0 {
         return Err(BrahmandaError::InvalidStructure(
@@ -657,6 +641,215 @@ pub fn distance_modulus(
     // μ = 5 log₁₀(d_L [pc] / 10) = 5 log₁₀(d_L [Mpc] × 10⁶) + 25 - 5
     // Simplified: μ = 5 log₁₀(d_L [Mpc]) + 25
     ensure_finite(5.0 * dl.log10() + 25.0, "distance_modulus")
+}
+
+/// Angular diameter distance d_A(z) in Mpc.
+///
+/// d_A = χ(z) / (1+z) for a flat universe.
+///
+/// The angular diameter distance relates the physical transverse size
+/// of an object to its angular size on the sky: θ = L / d_A.
+///
+/// ```
+/// use brahmanda::power_spectrum::angular_diameter_distance;
+///
+/// let da = angular_diameter_distance(0.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(da.abs() < 1e-10);
+///
+/// // d_A peaks around z ~ 1.6 for Planck 2018 ΛCDM, then decreases
+/// let da1 = angular_diameter_distance(1.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(da1 > 1000.0 && da1 < 2500.0); // ~1650 Mpc
+/// ```
+pub fn angular_diameter_distance(
+    z: f64,
+    omega_m: f64,
+    w0: f64,
+    wa: f64,
+) -> Result<f64, BrahmandaError> {
+    let chi = comoving_distance(z, omega_m, w0, wa)?;
+    ensure_finite(chi / (1.0 + z), "angular_diameter_distance")
+}
+
+/// Comoving volume element dV/dz per steradian (Mpc³/sr).
+///
+/// dV/(dz dΩ) = c × χ²(z) / (H₀ × E(z))
+///
+/// Multiply by 4π for the full-sky volume element. Useful for
+/// computing number counts and luminosity functions.
+///
+/// ```
+/// use brahmanda::power_spectrum::comoving_volume_element;
+///
+/// // Volume element is zero at z=0 and increases
+/// let dv0 = comoving_volume_element(0.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(dv0.abs() < 1e-6);
+///
+/// let dv1 = comoving_volume_element(1.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(dv1 > 0.0);
+/// ```
+pub fn comoving_volume_element(
+    z: f64,
+    omega_m: f64,
+    w0: f64,
+    wa: f64,
+) -> Result<f64, BrahmandaError> {
+    require_finite(z, "comoving_volume_element")?;
+    if z < 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "comoving_volume_element: z must be non-negative".to_string(),
+        ));
+    }
+    let chi = comoving_distance(z, omega_m, w0, wa)?;
+    let e = hubble_parameter_ratio(z, omega_m, w0, wa)?;
+    let c_over_h0 = (C / 1e3) / H0_KM_S_MPC; // Mpc
+    ensure_finite(c_over_h0 * chi * chi / e, "comoving_volume_element")
+}
+
+/// Lookback time t_lb(z) in Gyr.
+///
+/// t_lb(z) = (1/H₀) ∫₀ᶻ dz' / ((1+z') E(z'))
+///
+/// The time elapsed since redshift z, i.e. how far back in time we
+/// are looking when we observe objects at redshift z.
+///
+/// ```
+/// use brahmanda::power_spectrum::lookback_time;
+///
+/// let t0 = lookback_time(0.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(t0.abs() < 1e-10);
+///
+/// // Lookback time to z=1 is about 7.9 Gyr for Planck 2018
+/// let t1 = lookback_time(1.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(t1 > 6.0 && t1 < 10.0, "t_lb(z=1) = {t1} Gyr");
+/// ```
+pub fn lookback_time(z: f64, omega_m: f64, w0: f64, wa: f64) -> Result<f64, BrahmandaError> {
+    require_finite(z, "lookback_time")?;
+    if z < 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "lookback_time: z must be non-negative".to_string(),
+        ));
+    }
+    if z == 0.0 {
+        return Ok(0.0);
+    }
+
+    // Simpson's rule in ln(1+z) for consistent sampling with age_of_universe.
+    // Change of variable: u = ln(1+z), dz = (1+z) du
+    // Integrand: 1/((1+z) E(z)) dz = 1/E(z) du
+    let n = 200_usize;
+    let ln1z = (1.0 + z).ln();
+    let d_ln = ln1z / n as f64;
+    let mut sum = 0.0;
+
+    for i in 0..n {
+        let u0 = i as f64 * d_ln;
+        let u1 = u0 + d_ln / 2.0;
+        let u2 = u0 + d_ln;
+        let z0 = u0.exp() - 1.0;
+        let z1 = u1.exp() - 1.0;
+        let z2 = u2.exp() - 1.0;
+        let e0 = hubble_parameter_ratio(z0, omega_m, w0, wa)?;
+        let e1 = hubble_parameter_ratio(z1, omega_m, w0, wa)?;
+        let e2 = hubble_parameter_ratio(z2, omega_m, w0, wa)?;
+        sum += (d_ln / 6.0) * (1.0 / e0 + 4.0 / e1 + 1.0 / e2);
+    }
+
+    // 1/H₀ in Gyr: H₀ = 67.4 km/s/Mpc, 1/H₀ = 1/(H₀_SI) seconds → Gyr
+    let h0_inv_gyr = 1.0 / (crate::constants::H0_SI * 3.15576e16); // 3.15576e16 s/Gyr
+    ensure_finite(h0_inv_gyr * sum, "lookback_time")
+}
+
+/// Age of the universe at redshift z in Gyr.
+///
+/// t(z) = (1/H₀) ∫_z^∞ dz' / ((1+z') E(z'))
+///
+/// At z = 0 this gives the current age of the universe (~13.8 Gyr for Planck 2018 ΛCDM).
+///
+/// ```
+/// use brahmanda::power_spectrum::age_of_universe;
+///
+/// let age = age_of_universe(0.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(age > 12.0 && age < 15.0, "age = {age} Gyr, expected ~13.8");
+///
+/// // Universe was younger at higher z
+/// let age_z1 = age_of_universe(1.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(age_z1 < age);
+/// ```
+pub fn age_of_universe(z: f64, omega_m: f64, w0: f64, wa: f64) -> Result<f64, BrahmandaError> {
+    require_finite(z, "age_of_universe")?;
+    if z < 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "age_of_universe: z must be non-negative".to_string(),
+        ));
+    }
+
+    // Integrate from z to z_max in ln(1+z) space for better high-z sampling.
+    let z_max = 2000.0;
+    if z >= z_max {
+        return Ok(0.0);
+    }
+
+    let n = 600_usize;
+    let ln1z_lo = (1.0 + z).ln();
+    let ln1z_hi = (1.0 + z_max).ln();
+    let d_ln = (ln1z_hi - ln1z_lo) / n as f64;
+    let mut sum = 0.0;
+
+    // Change of variable: u = ln(1+z), dz = (1+z) du
+    // Integrand: 1/((1+z) E(z)) dz = 1/E(z) du
+    for i in 0..n {
+        let u0 = ln1z_lo + i as f64 * d_ln;
+        let u1 = u0 + d_ln / 2.0;
+        let u2 = u0 + d_ln;
+        let z0 = u0.exp() - 1.0;
+        let z1 = u1.exp() - 1.0;
+        let z2 = u2.exp() - 1.0;
+        let e0 = hubble_parameter_ratio(z0, omega_m, w0, wa)?;
+        let e1 = hubble_parameter_ratio(z1, omega_m, w0, wa)?;
+        let e2 = hubble_parameter_ratio(z2, omega_m, w0, wa)?;
+        sum += (d_ln / 6.0) * (1.0 / e0 + 4.0 / e1 + 1.0 / e2);
+    }
+
+    let h0_inv_gyr = 1.0 / (crate::constants::H0_SI * 3.15576e16);
+    ensure_finite(h0_inv_gyr * sum, "age_of_universe")
+}
+
+/// Linear growth rate f(z) = d ln D / d ln a.
+///
+/// The logarithmic growth rate measures how fast structure grows relative
+/// to the expansion. In ΛCDM, f(z) ≈ Ω_m(z)^γ where γ ≈ 0.55 (Linder 2005).
+///
+/// Uses numerical differentiation of D(z) for accuracy with arbitrary
+/// dark energy models, rather than the Linder approximation.
+///
+/// ```
+/// use brahmanda::power_spectrum::growth_rate;
+///
+/// // In ΛCDM at z=0: f ≈ 0.52 (Ω_m^0.55 ≈ 0.315^0.55)
+/// let f = growth_rate(0.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(f > 0.4 && f < 0.7, "f(z=0) = {f}");
+///
+/// // At high z (matter-dominated): f → 1
+/// let f_high = growth_rate(10.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(f_high > 0.95, "f(z=10) = {f_high}, expected ~1");
+/// ```
+pub fn growth_rate(z: f64, omega_m: f64, w0: f64, wa: f64) -> Result<f64, BrahmandaError> {
+    require_finite(z, "growth_rate")?;
+    require_finite(omega_m, "growth_rate")?;
+    if z < -1.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "growth_rate: z must be >= -1".to_string(),
+        ));
+    }
+
+    // f = d ln D / d ln a = -(1+z) d ln D / dz
+    let eps = 1e-4;
+    let d_hi = growth_factor_w(z + eps, omega_m, w0, wa)?;
+    let d_lo = growth_factor_w((z - eps).max(0.0), omega_m, w0, wa)?;
+    let dz_eff = if z < eps { z + eps } else { 2.0 * eps };
+    let dlnd_dz = (d_hi.ln() - d_lo.ln()) / dz_eff;
+    let f = -(1.0 + z) * dlnd_dz;
+    ensure_finite(f, "growth_rate")
 }
 
 /// Effective spectral index n_eff at scale R (Mpc/h).
@@ -725,8 +918,8 @@ pub fn halofit_nl(k_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
 
     // Smith et al. 2003, Table 2
     let a_n = 10.0_f64.powf(
-        1.4861 + 1.8369 * n_eff + 1.6762 * n2 + 0.7940 * n_eff * n2
-            + 0.1670 * n2 * n2 - 0.6206 * n_eff.powi(5),
+        1.4861 + 1.8369 * n_eff + 1.6762 * n2 + 0.7940 * n_eff * n2 + 0.1670 * n2 * n2
+            - 0.6206 * n_eff.powi(5),
     );
     let b_n = 10.0_f64.powf(0.9463 + 0.9466 * n_eff + 0.3084 * n2 - 0.9400 * n_eff * n2);
     let c_n = 10.0_f64.powf(-0.2807 + 0.6669 * n_eff + 0.3214 * n2 - 0.0793 * n_eff * n2);
@@ -746,8 +939,8 @@ pub fn halofit_nl(k_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
         * (-f_y).exp();
 
     // One-halo term: Δ²_H
-    let delta2_h = a_n * y.powf(3.0 * mu_n) / (1.0 + b_n * y.powf(-1.0))
-        / (1.0 + c_n * y.powf(3.0 * nu_n));
+    let delta2_h =
+        a_n * y.powf(3.0 * mu_n) / (1.0 + b_n * y.powf(-1.0)) / (1.0 + c_n * y.powf(3.0 * nu_n));
 
     ensure_finite(delta2_q + delta2_h, "halofit_nl")
 }
@@ -887,7 +1080,10 @@ mod tests {
     fn test_sigma_8_at_z0() {
         // σ(R=8, z=0) should be σ₈
         let s = sigma_r(8.0, 0.0).unwrap();
-        assert!((s - SIGMA_8).abs() < 0.01, "σ(8,0) = {s}, expected {SIGMA_8}");
+        assert!(
+            (s - SIGMA_8).abs() < 0.01,
+            "σ(8,0) = {s}, expected {SIGMA_8}"
+        );
     }
 
     #[test]
@@ -913,7 +1109,10 @@ mod tests {
     #[test]
     fn test_bao_transfer_large_k() {
         let t = transfer_function_eh_wiggle(1.0, OMEGA_M, OMEGA_B, 0.674).unwrap();
-        assert!(t < 0.5 && t > 0.0, "T_BAO(k=1) should be suppressed, got {t}");
+        assert!(
+            t < 0.5 && t > 0.0,
+            "T_BAO(k=1) should be suppressed, got {t}"
+        );
     }
 
     #[test]
@@ -928,7 +1127,10 @@ mod tests {
             diffs.push((t_w - t_nw).abs());
         }
         let max_diff = diffs.iter().cloned().fold(0.0_f64, f64::max);
-        assert!(max_diff > 0.001, "BAO wiggles should produce visible differences, max_diff={max_diff}");
+        assert!(
+            max_diff > 0.001,
+            "BAO wiggles should produce visible differences, max_diff={max_diff}"
+        );
     }
 
     #[test]
@@ -1022,17 +1224,17 @@ mod tests {
 
     #[test]
     fn test_angular_power_spectrum_positive() {
-        let cl = angular_power_spectrum_limber(10, 1.0, OMEGA_M, OMEGA_B, 0.674, -1.0, 0.0)
-            .unwrap();
+        let cl =
+            angular_power_spectrum_limber(10, 1.0, OMEGA_M, OMEGA_B, 0.674, -1.0, 0.0).unwrap();
         assert!(cl > 0.0, "C_l should be positive: {cl}");
     }
 
     #[test]
     fn test_angular_power_spectrum_decreases_with_l() {
-        let cl10 = angular_power_spectrum_limber(10, 1.0, OMEGA_M, OMEGA_B, 0.674, -1.0, 0.0)
-            .unwrap();
-        let cl1000 = angular_power_spectrum_limber(1000, 1.0, OMEGA_M, OMEGA_B, 0.674, -1.0, 0.0)
-            .unwrap();
+        let cl10 =
+            angular_power_spectrum_limber(10, 1.0, OMEGA_M, OMEGA_B, 0.674, -1.0, 0.0).unwrap();
+        let cl1000 =
+            angular_power_spectrum_limber(1000, 1.0, OMEGA_M, OMEGA_B, 0.674, -1.0, 0.0).unwrap();
         // At high l, C_l should generally decrease (modulo BAO features)
         assert!(cl10 > cl1000, "C_10={cl10} should be > C_1000={cl1000}");
     }
@@ -1125,5 +1327,135 @@ mod tests {
         assert!(hubble_parameter_ratio(-2.0, OMEGA_M, -1.0, 0.0).is_err());
         assert!(comoving_distance(-1.0, OMEGA_M, -1.0, 0.0).is_err());
         assert!(angular_power_spectrum_limber(0, 1.0, OMEGA_M, OMEGA_B, 0.674, -1.0, 0.0).is_err());
+    }
+
+    // -- angular diameter distance --
+
+    #[test]
+    fn test_angular_diameter_distance_z0() {
+        let da = angular_diameter_distance(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(da.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_angular_diameter_distance_relation() {
+        // d_A = d_L / (1+z)^2
+        let z = 1.0;
+        let da = angular_diameter_distance(z, OMEGA_M, -1.0, 0.0).unwrap();
+        let dl = luminosity_distance(z, OMEGA_M, -1.0, 0.0).unwrap();
+        let ratio = dl / da;
+        assert!(
+            (ratio - (1.0 + z).powi(2)).abs() < 1e-6,
+            "d_L/d_A = {ratio}, expected {}",
+            (1.0 + z).powi(2)
+        );
+    }
+
+    // -- comoving volume element --
+
+    #[test]
+    fn test_comoving_volume_element_z0() {
+        let dv = comoving_volume_element(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(dv.abs() < 1e-6, "dV/dz at z=0 should be ~0: {dv}");
+    }
+
+    #[test]
+    fn test_comoving_volume_element_positive() {
+        for z in [0.5, 1.0, 2.0, 5.0] {
+            let dv = comoving_volume_element(z, OMEGA_M, -1.0, 0.0).unwrap();
+            assert!(dv > 0.0, "dV/dz should be positive at z={z}");
+        }
+    }
+
+    // -- lookback time --
+
+    #[test]
+    fn test_lookback_time_z0() {
+        let t = lookback_time(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(t.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_lookback_time_monotonic() {
+        let t1 = lookback_time(0.5, OMEGA_M, -1.0, 0.0).unwrap();
+        let t2 = lookback_time(1.0, OMEGA_M, -1.0, 0.0).unwrap();
+        let t3 = lookback_time(2.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(t3 > t2 && t2 > t1, "lookback time should increase with z");
+    }
+
+    #[test]
+    fn test_lookback_time_z1_value() {
+        // t_lb(z=1) ≈ 7.9 Gyr for Planck 2018
+        let t = lookback_time(1.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(t > 6.0 && t < 10.0, "t_lb(z=1) = {t} Gyr");
+    }
+
+    // -- age of universe --
+
+    #[test]
+    fn test_age_of_universe_planck() {
+        // Age ≈ 13.8 Gyr for Planck 2018
+        let age = age_of_universe(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(age > 12.0 && age < 15.0, "age = {age} Gyr, expected ~13.8");
+    }
+
+    #[test]
+    fn test_age_decreases_with_z() {
+        let a0 = age_of_universe(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        let a1 = age_of_universe(1.0, OMEGA_M, -1.0, 0.0).unwrap();
+        let a5 = age_of_universe(5.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(a0 > a1 && a1 > a5);
+    }
+
+    #[test]
+    fn test_age_plus_lookback_equals_total() {
+        // age(z) + t_lb(z) ≈ age(0)
+        let total = age_of_universe(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        for z in [0.5, 1.0, 2.0] {
+            let age_z = age_of_universe(z, OMEGA_M, -1.0, 0.0).unwrap();
+            let tlb = lookback_time(z, OMEGA_M, -1.0, 0.0).unwrap();
+            assert!(
+                (age_z + tlb - total).abs() / total < 0.02,
+                "age({z}) + t_lb({z}) = {} ≠ {total}",
+                age_z + tlb
+            );
+        }
+    }
+
+    // -- growth rate --
+
+    #[test]
+    fn test_growth_rate_z0() {
+        // f(z=0) ≈ Ω_m^0.55 ≈ 0.315^0.55 ≈ 0.526
+        let f = growth_rate(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        let expected = OMEGA_M.powf(0.55);
+        assert!(
+            (f - expected).abs() / expected < 0.1,
+            "f(z=0) = {f}, expected ~{expected}"
+        );
+    }
+
+    #[test]
+    fn test_growth_rate_high_z() {
+        // At high z (matter-dominated), f → 1
+        let f = growth_rate(10.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(f > 0.95, "f(z=10) = {f}, expected ~1");
+    }
+
+    #[test]
+    fn test_growth_rate_increases_with_z() {
+        let f0 = growth_rate(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        let f1 = growth_rate(1.0, OMEGA_M, -1.0, 0.0).unwrap();
+        let f5 = growth_rate(5.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(
+            f5 > f1 && f1 > f0,
+            "f should increase toward 1 at high z: f(0)={f0}, f(1)={f1}, f(5)={f5}"
+        );
+    }
+
+    #[test]
+    fn test_growth_rate_invalid() {
+        assert!(growth_rate(-2.0, OMEGA_M, -1.0, 0.0).is_err());
+        assert!(growth_rate(f64::NAN, OMEGA_M, -1.0, 0.0).is_err());
     }
 }

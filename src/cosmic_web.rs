@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ensure_finite, require_all_finite, require_finite, BrahmandaError};
+use crate::error::{BrahmandaError, ensure_finite, require_all_finite, require_finite};
 
 /// Classification of cosmic web environments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -18,6 +18,17 @@ pub enum WebEnvironment {
     Sheet,
     /// Underdense region between filaments.
     Void,
+}
+
+impl core::fmt::Display for WebEnvironment {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Node => f.write_str("Node"),
+            Self::Filament => f.write_str("Filament"),
+            Self::Sheet => f.write_str("Sheet"),
+            Self::Void => f.write_str("Void"),
+        }
+    }
 }
 
 /// Classify environment from eigenvalues of the tidal tensor.
@@ -143,10 +154,7 @@ pub fn two_point_correlation_power_law(
             "two_point_correlation: distances must be positive".to_string(),
         ));
     }
-    ensure_finite(
-        (r0_mpc / r_mpc).powf(gamma),
-        "two_point_correlation",
-    )
+    ensure_finite((r0_mpc / r_mpc).powf(gamma), "two_point_correlation")
 }
 
 /// HSW void density profile — Hamaus, Sutter & Wandelt (2014).
@@ -299,6 +307,17 @@ pub enum HessianMorphology {
     Background,
 }
 
+impl core::fmt::Display for HessianMorphology {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Blob => f.write_str("Blob"),
+            Self::Filament => f.write_str("Filament"),
+            Self::Wall => f.write_str("Wall"),
+            Self::Background => f.write_str("Background"),
+        }
+    }
+}
+
 /// Classify local morphology from Hessian eigenvalues.
 ///
 /// Uses the ratio of eigenvalues to distinguish filaments from blobs,
@@ -331,8 +350,12 @@ pub fn classify_hessian_morphology(
         ));
     }
 
-    let mut abs_ev: Vec<f64> = eigenvalues.iter().map(|e| e.abs()).collect();
-    abs_ev.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    let mut abs_ev = [
+        eigenvalues[0].abs(),
+        eigenvalues[1].abs(),
+        eigenvalues[2].abs(),
+    ];
+    abs_ev.sort_by(|a, b| b.total_cmp(a));
 
     let lam_max = abs_ev[0];
     if lam_max < 1e-30 {
@@ -382,7 +405,7 @@ pub fn filamentarity(eigenvalues: &[f64; 3]) -> Result<f64, BrahmandaError> {
 
     // Sort ascending (most negative first)
     let mut ev = *eigenvalues;
-    ev.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    ev.sort_by(|a, b| a.total_cmp(b));
 
     let denom = ev[0] - ev[2]; // λ₁ - λ₃ (negative for overdensities)
     if denom.abs() < 1e-30 {
@@ -473,8 +496,7 @@ fn erfc_approx(x: f64) -> f64 {
     let t = 1.0 / (1.0 + 0.3275911 * x);
     let poly = t
         * (0.254829592
-            + t * (-0.284496736
-                + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+            + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
     poly * (-x * x).exp()
 }
 
@@ -656,7 +678,10 @@ mod tests {
         let (v0_neg, _, _, _) = minkowski_functionals(-1.0, 1.0, 0.5).unwrap();
         let (v0_zero, _, _, _) = minkowski_functionals(0.0, 1.0, 0.5).unwrap();
         let (v0_pos, _, _, _) = minkowski_functionals(1.0, 1.0, 0.5).unwrap();
-        assert!(v0_neg > v0_zero && v0_zero > v0_pos, "V₀ should decrease with ν");
+        assert!(
+            v0_neg > v0_zero && v0_zero > v0_pos,
+            "V₀ should decrease with ν"
+        );
     }
 
     #[test]

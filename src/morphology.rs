@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ensure_finite, require_finite, BrahmandaError};
+use crate::error::{BrahmandaError, ensure_finite, require_finite};
 
 /// Hubble classification of galaxy morphology.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -23,8 +23,20 @@ pub enum HubbleType {
     Irregular,
 }
 
+impl core::fmt::Display for HubbleType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Elliptical => f.write_str("Elliptical"),
+            Self::Lenticular => f.write_str("Lenticular"),
+            Self::Spiral => f.write_str("Spiral"),
+            Self::BarredSpiral => f.write_str("Barred Spiral"),
+            Self::Irregular => f.write_str("Irregular"),
+        }
+    }
+}
+
 /// Structural parameters of a galaxy.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[must_use]
 pub struct GalaxyProperties {
     /// Hubble morphological type.
@@ -114,11 +126,7 @@ pub fn faber_jackson_ratio(sigma: f64, sigma_ref: f64) -> Result<f64, BrahmandaE
 /// assert!((ratio - 16.0).abs() < 1e-6);
 /// ```
 #[inline]
-pub fn tully_fisher_ratio(
-    v_rot: f64,
-    v_ref: f64,
-    alpha: f64,
-) -> Result<f64, BrahmandaError> {
+pub fn tully_fisher_ratio(v_rot: f64, v_ref: f64, alpha: f64) -> Result<f64, BrahmandaError> {
     require_finite(v_rot, "tully_fisher_ratio")?;
     require_finite(v_ref, "tully_fisher_ratio")?;
     require_finite(alpha, "tully_fisher_ratio")?;
@@ -260,7 +268,10 @@ pub fn stellar_mass_density(z: f64) -> Result<f64, BrahmandaError> {
         let integrand = |zz: f64| -> Result<f64, BrahmandaError> {
             let sfr = sfr_density_madau_dickinson(zz)?;
             let e = crate::power_spectrum::hubble_parameter_ratio(
-                zz, crate::constants::OMEGA_M, -1.0, 0.0,
+                zz,
+                crate::constants::OMEGA_M,
+                -1.0,
+                0.0,
             )?;
             Ok(sfr / ((1.0 + zz) * h0_per_yr * e))
         };
