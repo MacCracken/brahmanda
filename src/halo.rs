@@ -6,8 +6,9 @@ use std::f64::consts::PI;
 
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{G, KPC_M, M_SUN, RHO_CRIT};
+use crate::constants::{G, KPC_M, M_SUN, OMEGA_M, RHO_CRIT};
 use crate::error::{ensure_finite, require_finite, BrahmandaError};
+use crate::power_spectrum;
 
 /// NFW (Navarro-Frenk-White) dark matter halo density profile.
 ///
@@ -186,6 +187,128 @@ impl HaloProperties {
     }
 }
 
+/// Critical overdensity for spherical collapse (EdS).
+pub const DELTA_C: f64 = 1.686;
+
+/// Lagrangian radius for a halo of mass M (Mpc/h).
+///
+/// R = (3M / 4π ρ̄_m)^(1/3), where ρ̄_m = Ω_m × ρ_crit.
+///
+/// ```
+/// use brahmanda::halo::lagrangian_radius;
+///
+/// let r = lagrangian_radius(1e12).unwrap();
+/// assert!(r > 0.0);
+/// ```
+pub fn lagrangian_radius(m_msun: f64) -> Result<f64, BrahmandaError> {
+    require_finite(m_msun, "lagrangian_radius")?;
+    if m_msun <= 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "lagrangian_radius: mass must be positive".to_string(),
+        ));
+    }
+    let m_kg = m_msun * M_SUN;
+    let rho_m = OMEGA_M * RHO_CRIT; // mean matter density (kg/m³)
+    let r_m = (3.0 * m_kg / (4.0 * PI * rho_m)).cbrt();
+    // Convert m → Mpc/h (h = 0.674)
+    let h = 0.674;
+    let mpc_m = 3.085_677_581e22;
+    ensure_finite(r_m / mpc_m * h, "lagrangian_radius")
+}
+
+/// Peak height ν = δ_c / σ(M, z).
+///
+/// The dimensionless threshold that determines how rare a halo of mass M
+/// is at redshift z. Higher ν means rarer (more massive) halos.
+///
+/// ```
+/// use brahmanda::halo::peak_height;
+///
+/// let nu = peak_height(1e12, 0.0).unwrap();
+/// assert!(nu > 0.0);
+/// ```
+pub fn peak_height(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+    let r = lagrangian_radius(m_msun)?;
+    let sigma = power_spectrum::sigma_r(r, z)?;
+    ensure_finite(DELTA_C / sigma, "peak_height")
+}
+
+/// Press-Schechter halo mass function: dn/dlnM.
+///
+/// Returns the comoving number density of halos per unit ln(M)
+/// in units of h³/Mpc³.
+///
+/// dn/dlnM = (ρ̄_m / M) × |dlnσ/dlnM| × f(ν)
+///
+/// where f(ν) = √(2/π) × ν × exp(-ν²/2) is the PS multiplicity function.
+///
+/// # Arguments
+/// * `m_msun` — Halo mass in solar masses.
+/// * `z` — Redshift.
+///
+/// ```
+/// use brahmanda::halo::press_schechter_dndlnm;
+///
+/// // More low-mass halos than high-mass
+/// let n_low = press_schechter_dndlnm(1e10, 0.0).unwrap();
+/// let n_high = press_schechter_dndlnm(1e14, 0.0).unwrap();
+/// assert!(n_low > n_high);
+/// ```
+pub fn press_schechter_dndlnm(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+    require_finite(m_msun, "press_schechter_dndlnm")?;
+    require_finite(z, "press_schechter_dndlnm")?;
+    if m_msun <= 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "press_schechter_dndlnm: mass must be positive".to_string(),
+        ));
+    }
+
+    let nu = peak_height(m_msun, z)?;
+
+    // PS multiplicity: f(ν) = √(2/π) × ν × exp(-ν²/2)
+    let f_nu = (2.0 / PI).sqrt() * nu * (-nu * nu / 2.0).exp();
+
+    // |dlnσ/dlnM| ≈ (n_s + 3) / 6 for our power-law σ(R) approximation
+    // Since σ ∝ R^(-(n_s+3)/6) and M ∝ R³, dlnσ/dlnM = -(n_s+3)/18
+    let n_s = crate::constants::N_S;
+    let dlnsigma_dlnm = (n_s + 3.0) / 18.0; // absolute value
+
+    // Mean matter density in h²M_sun/Mpc³
+    let h = 0.674;
+    let rho_m_kg_m3 = OMEGA_M * RHO_CRIT;
+    let mpc_m = 3.085_677_581e22;
+    let rho_m_msun_mpc3 = rho_m_kg_m3 * (mpc_m * mpc_m * mpc_m) / M_SUN;
+    let rho_m_h2 = rho_m_msun_mpc3 / (h * h * h); // h³ Mpc⁻³ M_sun
+
+    let dndlnm = (rho_m_h2 / m_msun) * dlnsigma_dlnm * f_nu;
+    ensure_finite(dndlnm, "press_schechter_dndlnm")
+}
+
+/// Linear halo bias — Mo & White (1996).
+///
+/// b(M, z) = 1 + (ν² - 1) / δ_c
+///
+/// where ν = δ_c / σ(M, z) is the peak height.
+///
+/// Massive halos (ν > 1) are positively biased (b > 1),
+/// while low-mass halos can be anti-biased (b < 1).
+///
+/// ```
+/// use brahmanda::halo::bias_mo_white;
+///
+/// // Cluster-mass halos are strongly biased
+/// let b_cluster = bias_mo_white(1e15, 0.0).unwrap();
+/// assert!(b_cluster > 2.0);
+///
+/// // MW-mass halos are mildly biased
+/// let b_mw = bias_mo_white(1e12, 0.0).unwrap();
+/// assert!(b_mw > 0.5 && b_mw < 3.0);
+/// ```
+pub fn bias_mo_white(m_msun: f64, z: f64) -> Result<f64, BrahmandaError> {
+    let nu = peak_height(m_msun, z)?;
+    ensure_finite(1.0 + (nu * nu - 1.0) / DELTA_C, "bias_mo_white")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,5 +354,52 @@ mod tests {
         assert!(nfw_density(-1.0, 1e7, 20.0).is_err());
         assert!(virial_radius(0.0).is_err());
         assert!(concentration_dutton_maccio(f64::NAN).is_err());
+    }
+
+    #[test]
+    fn test_lagrangian_radius_increases_with_mass() {
+        let r1 = lagrangian_radius(1e10).unwrap();
+        let r2 = lagrangian_radius(1e12).unwrap();
+        let r3 = lagrangian_radius(1e14).unwrap();
+        assert!(r3 > r2 && r2 > r1);
+    }
+
+    #[test]
+    fn test_peak_height_increases_with_mass() {
+        // More massive halos → higher ν (rarer peaks)
+        let nu1 = peak_height(1e10, 0.0).unwrap();
+        let nu2 = peak_height(1e14, 0.0).unwrap();
+        assert!(nu2 > nu1, "ν should increase with mass");
+    }
+
+    #[test]
+    fn test_press_schechter_decreases_with_mass() {
+        let n1 = press_schechter_dndlnm(1e10, 0.0).unwrap();
+        let n2 = press_schechter_dndlnm(1e12, 0.0).unwrap();
+        let n3 = press_schechter_dndlnm(1e14, 0.0).unwrap();
+        assert!(n1 > n2, "more low-mass halos");
+        assert!(n2 > n3, "fewer high-mass halos");
+    }
+
+    #[test]
+    fn test_press_schechter_positive() {
+        for m in [1e8, 1e10, 1e12, 1e14] {
+            let n = press_schechter_dndlnm(m, 0.0).unwrap();
+            assert!(n > 0.0, "dn/dlnM should be positive for M={m}");
+        }
+    }
+
+    #[test]
+    fn test_bias_cluster_strongly_biased() {
+        let b = bias_mo_white(1e15, 0.0).unwrap();
+        assert!(b > 2.0, "cluster bias: {b}");
+    }
+
+    #[test]
+    fn test_bias_increases_with_mass() {
+        let b1 = bias_mo_white(1e11, 0.0).unwrap();
+        let b2 = bias_mo_white(1e13, 0.0).unwrap();
+        let b3 = bias_mo_white(1e15, 0.0).unwrap();
+        assert!(b3 > b2 && b2 > b1, "bias should increase with mass");
     }
 }

@@ -149,6 +149,71 @@ pub fn two_point_correlation_power_law(
     )
 }
 
+/// HSW void density profile — Hamaus, Sutter & Wandelt (2014).
+///
+/// Empirical model for the radial density contrast of cosmic voids:
+///
+/// δ(r) = δ_c × (1 - (r/r_s)^α) / (1 + (r/r_v)^β)
+///
+/// where r_s is the scale radius and r_v is the void radius.
+/// The profile is underdense (δ < 0) in the interior and has a
+/// compensating overdense ridge near the void edge.
+///
+/// # Arguments
+/// * `r_mpc` — Distance from void center (Mpc).
+/// * `r_v_mpc` — Void effective radius (Mpc).
+/// * `delta_c` — Central density contrast (typically -0.8 to -0.4).
+/// * `alpha` — Inner slope (typically ~2.0).
+/// * `beta` — Outer steepness (typically ~6.0–10.0).
+/// * `r_s_mpc` — Scale radius, transition point (typically ~0.9 × r_v).
+///
+/// ```
+/// use brahmanda::cosmic_web::void_density_profile_hsw;
+///
+/// // Interior of a void: underdense
+/// let d_center = void_density_profile_hsw(0.0, 20.0, -0.8, 2.0, 8.0, 18.0).unwrap();
+/// assert!(d_center < 0.0);
+///
+/// // Far outside the void: approaches mean density (δ → 0)
+/// let d_far = void_density_profile_hsw(100.0, 20.0, -0.8, 2.0, 8.0, 18.0).unwrap();
+/// assert!(d_far.abs() < 0.1);
+/// ```
+pub fn void_density_profile_hsw(
+    r_mpc: f64,
+    r_v_mpc: f64,
+    delta_c: f64,
+    alpha: f64,
+    beta: f64,
+    r_s_mpc: f64,
+) -> Result<f64, BrahmandaError> {
+    require_finite(r_mpc, "void_density_profile_hsw")?;
+    require_finite(r_v_mpc, "void_density_profile_hsw")?;
+    require_finite(delta_c, "void_density_profile_hsw")?;
+    require_finite(alpha, "void_density_profile_hsw")?;
+    require_finite(beta, "void_density_profile_hsw")?;
+    require_finite(r_s_mpc, "void_density_profile_hsw")?;
+    if r_mpc < 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "void_density_profile_hsw: radius must be non-negative".to_string(),
+        ));
+    }
+    if r_v_mpc <= 0.0 || r_s_mpc <= 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "void_density_profile_hsw: r_v and r_s must be positive".to_string(),
+        ));
+    }
+    if alpha <= 0.0 || beta <= 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "void_density_profile_hsw: alpha and beta must be positive".to_string(),
+        ));
+    }
+
+    let x_s = r_mpc / r_s_mpc;
+    let x_v = r_mpc / r_v_mpc;
+    let delta = delta_c * (1.0 - x_s.powf(alpha)) / (1.0 + x_v.powf(beta));
+    ensure_finite(delta, "void_density_profile_hsw")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +273,34 @@ mod tests {
         // 1000 Mpc³ → R ≈ 6.2 Mpc
         let r = void_radius_mpc(1000.0).unwrap();
         assert!(r > 5.0 && r < 7.0);
+    }
+
+    #[test]
+    fn test_hsw_center_underdense() {
+        let d = void_density_profile_hsw(0.0, 20.0, -0.8, 2.0, 8.0, 18.0).unwrap();
+        assert!((d - (-0.8)).abs() < 1e-10, "center should be δ_c: {d}");
+    }
+
+    #[test]
+    fn test_hsw_far_field_approaches_zero() {
+        let d = void_density_profile_hsw(200.0, 20.0, -0.8, 2.0, 8.0, 18.0).unwrap();
+        assert!(d.abs() < 0.01, "far field should be near 0: {d}");
+    }
+
+    #[test]
+    fn test_hsw_compensation_ridge() {
+        // Near the void edge (r ~ r_s), the profile should cross zero
+        // and become slightly positive (compensating overdensity)
+        let d_inner = void_density_profile_hsw(10.0, 20.0, -0.8, 2.0, 8.0, 18.0).unwrap();
+        let d_edge = void_density_profile_hsw(20.0, 20.0, -0.8, 2.0, 8.0, 18.0).unwrap();
+        assert!(d_inner < d_edge, "density should increase toward edge");
+    }
+
+    #[test]
+    fn test_hsw_invalid_inputs() {
+        assert!(void_density_profile_hsw(-1.0, 20.0, -0.8, 2.0, 8.0, 18.0).is_err());
+        assert!(void_density_profile_hsw(5.0, 0.0, -0.8, 2.0, 8.0, 18.0).is_err());
+        assert!(void_density_profile_hsw(5.0, 20.0, -0.8, 0.0, 8.0, 18.0).is_err());
+        assert!(void_density_profile_hsw(f64::NAN, 20.0, -0.8, 2.0, 8.0, 18.0).is_err());
     }
 }

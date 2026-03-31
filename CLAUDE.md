@@ -18,9 +18,9 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 - `src/error.rs` — `BrahmandaError` enum with `thiserror`, input/output validation helpers
 - `src/constants.rs` — Planck 2018 cosmological parameters, physical constants (SI)
 - `src/morphology.rs` — Galaxy classification, Sersic profile, Faber-Jackson, Tully-Fisher
-- `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity
-- `src/cosmic_web.rs` — Tidal tensor classification, density contrast, correlation function
-- `src/power_spectrum.rs` — Transfer function, growth factor, primordial power, σ(R)
+- `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity, Press-Schechter mass function, Mo & White bias
+- `src/cosmic_web.rs` — Tidal tensor classification, density contrast, correlation function, HSW void profile
+- `src/power_spectrum.rs` — Transfer function (no-wiggle + BAO), growth factor, primordial power, σ(R), dark energy w(z), comoving distance, angular power spectrum C_l
 - `src/logging.rs` — tracing-subscriber init (feature-gated)
 
 ## Dependencies
@@ -41,19 +41,19 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 
 ### P1 — Hardening
 
-- [ ] Adversarial input tests (NaN, Inf, edge cases)
-- [ ] Serde roundtrip tests for all public types
-- [ ] Physical invariant tests (mass conservation, growth monotonicity)
-- [ ] Doc tests on all public functions
+- [x] Adversarial input tests (NaN, Inf, edge cases)
+- [x] Serde roundtrip tests for all public types
+- [x] Physical invariant tests (mass conservation, growth monotonicity)
+- [x] Doc tests on all public functions
 
 ### P2 — Extensions
 
-- [ ] Press-Schechter halo mass function
-- [ ] Halo bias (Mo & White 1996)
-- [ ] BAO wiggles in transfer function
-- [ ] Void profile models (Hamaus et al.)
-- [ ] Angular power spectrum C_l
-- [ ] Dark energy equation of state w(z) models
+- [x] Press-Schechter halo mass function
+- [x] Halo bias (Mo & White 1996)
+- [x] BAO wiggles in transfer function
+- [x] Void profile models (Hamaus et al.)
+- [x] Angular power spectrum C_l
+- [x] Dark energy equation of state w(z) models
 
 ### Integration: hisab-mimamsa Scale 5
 
