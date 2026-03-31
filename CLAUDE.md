@@ -17,10 +17,10 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 
 - `src/error.rs` — `BrahmandaError` enum with `thiserror`, input/output validation helpers
 - `src/constants.rs` — Planck 2018 cosmological parameters, physical constants (SI)
-- `src/morphology.rs` — Galaxy classification, Sersic profile, Faber-Jackson, Tully-Fisher
+- `src/morphology.rs` — Galaxy classification, Sersic profile, Faber-Jackson, Tully-Fisher, mass-metallicity, Madau-Dickinson SFR, stellar mass density
 - `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity, Press-Schechter & Sheth-Tormen mass functions, Mo & White / ST bias, mass accretion history (Wechsler, McBride), SHAM
-- `src/cosmic_web.rs` — Tidal tensor classification, density contrast, correlation function, HSW void profile
-- `src/power_spectrum.rs` — Transfer function (no-wiggle + BAO), growth factor, primordial power, σ(R), dark energy w(z), comoving distance, angular power spectrum C_l
+- `src/cosmic_web.rs` — Tidal tensor classification, density contrast, correlation function, HSW void profile, void excursion set, Hessian morphology, filamentarity, Minkowski functionals
+- `src/power_spectrum.rs` — Transfer function (no-wiggle + BAO), growth factor, primordial power, σ(R), dark energy w(z), comoving distance, angular power spectrum C_l, Halofit nonlinear P(k), luminosity distance, distance modulus, Sachs-Wolfe (ordinary + ISW)
 - `src/logging.rs` — tracing-subscriber init (feature-gated)
 
 ## Dependencies
@@ -61,6 +61,24 @@ hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation),
 - [x] Sheth-Tormen halo bias
 - [x] Halo mass accretion history (Wechsler 2002, McBride 2009)
 - [x] Subhalo abundance matching (Schechter SMF + SHAM)
+
+### P4a — Power Spectrum / Cosmology Extensions
+
+- [x] Nonlinear power spectrum (Smith et al. 2003 Halofit)
+- [x] Luminosity distance and distance modulus μ(z)
+- [x] Sachs-Wolfe effect (ordinary + integrated)
+
+### P4b — Cosmic Web Extensions
+
+- [x] Void-in-void excursion set (Sheth & van de Weygaert 2004)
+- [x] Filament spine extraction (Hessian morphology, filamentarity)
+- [x] Minkowski functionals for Gaussian excursion sets
+
+### P4c — Galaxy Extensions
+
+- [x] Mass-metallicity relation (Tremonti 2004 + redshift evolution)
+- [x] Madau-Dickinson cosmic SFR density
+- [x] Cumulative stellar mass density
 
 ### Integration: hisab-mimamsa Scale 5
 

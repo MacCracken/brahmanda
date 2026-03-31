@@ -603,6 +603,251 @@ pub fn angular_power_spectrum_limber(
     ensure_finite(cl, "angular_power_spectrum_limber")
 }
 
+/// Luminosity distance d_L(z) in Mpc.
+///
+/// d_L = (1+z) × χ(z) for a flat universe.
+///
+/// ```
+/// use brahmanda::power_spectrum::luminosity_distance;
+///
+/// let dl = luminosity_distance(0.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(dl.abs() < 1e-10);
+///
+/// let dl = luminosity_distance(1.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(dl > 5000.0 && dl < 8000.0); // ~6600 Mpc
+/// ```
+pub fn luminosity_distance(
+    z: f64,
+    omega_m: f64,
+    w0: f64,
+    wa: f64,
+) -> Result<f64, BrahmandaError> {
+    let chi = comoving_distance(z, omega_m, w0, wa)?;
+    ensure_finite((1.0 + z) * chi, "luminosity_distance")
+}
+
+/// Distance modulus μ(z) for SN Ia cosmology.
+///
+/// μ = 5 log₁₀(d_L / 10 pc) = 5 log₁₀(d_L [Mpc]) + 25
+///
+/// ```
+/// use brahmanda::power_spectrum::distance_modulus;
+///
+/// // At z≈0.01, μ ≈ 33 (nearby SN Ia)
+/// let mu = distance_modulus(0.01, 0.315, -1.0, 0.0).unwrap();
+/// assert!(mu > 30.0 && mu < 38.0, "μ(z=0.01) = {mu}");
+///
+/// // At z=1, μ ≈ 44
+/// let mu = distance_modulus(1.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(mu > 42.0 && mu < 46.0, "μ(z=1) = {mu}");
+/// ```
+pub fn distance_modulus(
+    z: f64,
+    omega_m: f64,
+    w0: f64,
+    wa: f64,
+) -> Result<f64, BrahmandaError> {
+    require_finite(z, "distance_modulus")?;
+    if z <= 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "distance_modulus: z must be positive".to_string(),
+        ));
+    }
+    let dl = luminosity_distance(z, omega_m, w0, wa)?;
+    // μ = 5 log₁₀(d_L [pc] / 10) = 5 log₁₀(d_L [Mpc] × 10⁶) + 25 - 5
+    // Simplified: μ = 5 log₁₀(d_L [Mpc]) + 25
+    ensure_finite(5.0 * dl.log10() + 25.0, "distance_modulus")
+}
+
+/// Effective spectral index n_eff at scale R (Mpc/h).
+///
+/// n_eff = -2 × d ln σ(R) / d ln R - 3
+///
+/// Computed via finite differencing of σ(R).
+fn effective_spectral_index(r_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
+    let dr = r_mpc * 0.01;
+    let s_lo = sigma_r(r_mpc - dr, z)?;
+    let s_hi = sigma_r(r_mpc + dr, z)?;
+    let dlns_dlnr = (s_hi.ln() - s_lo.ln()) / ((r_mpc + dr).ln() - (r_mpc - dr).ln());
+    ensure_finite(-2.0 * dlns_dlnr - 3.0, "effective_spectral_index")
+}
+
+/// Nonlinear power spectrum — Smith et al. (2003) Halofit.
+///
+/// Maps the linear dimensionless power Δ²_lin(k) to the nonlinear Δ²_NL(k)
+/// using the Halofit fitting formula.
+///
+/// Returns the nonlinear dimensionless power spectrum Δ²_NL(k) = k³ P_NL(k) / (2π²).
+///
+/// # Arguments
+/// * `k_mpc` — Wavenumber in h/Mpc.
+/// * `z` — Redshift.
+///
+/// ```
+/// use brahmanda::power_spectrum::halofit_nl;
+///
+/// // Nonlinear power is positive and finite
+/// let dnl = halofit_nl(0.1, 0.0).unwrap();
+/// assert!(dnl > 0.0);
+///
+/// // Small scales have more nonlinear power than large scales
+/// let dnl_small = halofit_nl(1.0, 0.0).unwrap();
+/// assert!(dnl_small > dnl);
+/// ```
+pub fn halofit_nl(k_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
+    require_finite(k_mpc, "halofit_nl")?;
+    require_finite(z, "halofit_nl")?;
+    if k_mpc <= 0.0 {
+        return Err(BrahmandaError::InvalidStructure(
+            "halofit_nl: k must be positive".to_string(),
+        ));
+    }
+
+    // Find nonlinear scale: R_nl where σ(R_nl, z) = 1
+    let mut r_lo = 0.01_f64;
+    let mut r_hi = 100.0_f64;
+    for _ in 0..60 {
+        let r_mid = (r_lo * r_hi).sqrt();
+        let s = sigma_r(r_mid, z)?;
+        if s > 1.0 {
+            r_lo = r_mid;
+        } else {
+            r_hi = r_mid;
+        }
+    }
+    let r_nl = (r_lo * r_hi).sqrt();
+    let k_sigma = 1.0 / r_nl;
+
+    let n_eff = effective_spectral_index(r_nl, z)?;
+    let n2 = n_eff * n_eff;
+
+    let y = k_mpc / k_sigma;
+
+    // Smith et al. 2003, Table 2
+    let a_n = 10.0_f64.powf(
+        1.4861 + 1.8369 * n_eff + 1.6762 * n2 + 0.7940 * n_eff * n2
+            + 0.1670 * n2 * n2 - 0.6206 * n_eff.powi(5),
+    );
+    let b_n = 10.0_f64.powf(0.9463 + 0.9466 * n_eff + 0.3084 * n2 - 0.9400 * n_eff * n2);
+    let c_n = 10.0_f64.powf(-0.2807 + 0.6669 * n_eff + 0.3214 * n2 - 0.0793 * n_eff * n2);
+    let mu_n = 10.0_f64.powf(-3.5442 + 0.1908 * n_eff);
+    let nu_n = 10.0_f64.powf(0.9589 + 1.2857 * n_eff);
+    let alpha_n = (1.3884 + 0.3700 * n_eff - 0.1452 * n2).abs();
+    let beta_n = 0.8291 + 0.9854 * n_eff + 0.3401 * n2;
+
+    // Linear Δ²(k) ∝ σ²(1/k) approximately
+    let sigma_k = sigma_r(1.0 / k_mpc, z)?;
+    let delta2_lin = sigma_k * sigma_k;
+
+    // Two-halo (quasi-linear) term: Δ²_Q
+    let f_y = y / 4.0 + y * y / 8.0;
+    let delta2_q = delta2_lin
+        * ((1.0 + delta2_lin).powf(beta_n) / (1.0 + alpha_n * delta2_lin))
+        * (-f_y).exp();
+
+    // One-halo term: Δ²_H
+    let delta2_h = a_n * y.powf(3.0 * mu_n) / (1.0 + b_n * y.powf(-1.0))
+        / (1.0 + c_n * y.powf(3.0 * nu_n));
+
+    ensure_finite(delta2_q + delta2_h, "halofit_nl")
+}
+
+/// Ordinary Sachs-Wolfe effect: ΔT/T from gravitational potential.
+///
+/// (ΔT/T)_SW = Φ / 3
+///
+/// where Φ is the Newtonian gravitational potential at last scattering.
+/// Valid for large angular scales (l < 30).
+///
+/// # Arguments
+/// * `phi` — Gravitational potential (dimensionless, Φ/c²).
+///
+/// ```
+/// use brahmanda::power_spectrum::sachs_wolfe;
+///
+/// let dt_t = sachs_wolfe(1e-5).unwrap();
+/// assert!((dt_t - 1e-5 / 3.0).abs() < 1e-15);
+/// ```
+#[inline]
+pub fn sachs_wolfe(phi: f64) -> Result<f64, BrahmandaError> {
+    require_finite(phi, "sachs_wolfe")?;
+    ensure_finite(phi / 3.0, "sachs_wolfe")
+}
+
+/// Integrated Sachs-Wolfe effect: ΔT/T from time-varying potentials.
+///
+/// (ΔT/T)_ISW = -2 ∫ (dΦ/dt) dt/c = 2 ∫ (dΦ/dz) dz
+///
+/// In ΛCDM, the ISW arises because Φ decays at late times when dark
+/// energy dominates. Uses the growth rate f = dlnD/dlna:
+///
+/// ISW ∝ ∫ (f - 1) D(z) H(z)/H₀ dz
+///
+/// In EdS (Ω_m = 1), f = 1 so ISW vanishes identically.
+///
+/// Returns the unnormalized ISW contribution between z_min and z_max.
+///
+/// ```
+/// use brahmanda::power_spectrum::integrated_sachs_wolfe;
+///
+/// // ISW is non-zero in ΛCDM (Ω_Λ > 0)
+/// let isw = integrated_sachs_wolfe(0.0, 2.0, 0.315, -1.0, 0.0).unwrap();
+/// assert!(isw.abs() > 0.0);
+///
+/// // EdS universe (Ω_m=1): no ISW effect (potentials constant)
+/// let isw_eds = integrated_sachs_wolfe(0.0, 2.0, 1.0, -1.0, 0.0).unwrap();
+/// assert!(isw_eds.abs() < 0.01, "EdS ISW should be ~0: {isw_eds}");
+/// ```
+pub fn integrated_sachs_wolfe(
+    z_min: f64,
+    z_max: f64,
+    omega_m: f64,
+    w0: f64,
+    wa: f64,
+) -> Result<f64, BrahmandaError> {
+    require_finite(z_min, "integrated_sachs_wolfe")?;
+    require_finite(z_max, "integrated_sachs_wolfe")?;
+    if z_min < 0.0 || z_max <= z_min {
+        return Err(BrahmandaError::InvalidStructure(
+            "integrated_sachs_wolfe: need 0 <= z_min < z_max".to_string(),
+        ));
+    }
+
+    // ISW ∝ ∫ (f(z) - 1) × D(z) × H(z)/H₀ dz
+    // where f = dlnD/dlna is the growth rate.
+    // In EdS, f = 1 exactly so ISW = 0. In ΛCDM, f < 1 at late times.
+    let n = 200_usize;
+    let dz = (z_max - z_min) / n as f64;
+    let eps = 1e-4;
+    let mut sum = 0.0;
+
+    let isw_integrand = |z: f64| -> Result<f64, BrahmandaError> {
+        let d = growth_factor_w(z, omega_m, w0, wa)?;
+        let e = hubble_parameter_ratio(z, omega_m, w0, wa)?;
+
+        // f = dlnD/dlna = -(1+z) dlnD/dz
+        let d_hi = growth_factor_w(z + eps, omega_m, w0, wa)?;
+        let d_lo = growth_factor_w((z - eps).max(0.0), omega_m, w0, wa)?;
+        let dz_eff = if z < eps { z + eps } else { 2.0 * eps };
+        let dlnd_dz = (d_hi.ln() - d_lo.ln()) / dz_eff;
+        let f_growth = -(1.0 + z) * dlnd_dz;
+
+        Ok((f_growth - 1.0) * d * e)
+    };
+
+    for i in 0..n {
+        let z0 = z_min + i as f64 * dz;
+        let z1 = z0 + dz / 2.0;
+        let z2 = z0 + dz;
+        let f0 = isw_integrand(z0)?;
+        let f1 = isw_integrand(z1)?;
+        let f2 = isw_integrand(z2)?;
+        sum += (dz / 6.0) * (f0 + 4.0 * f1 + f2);
+    }
+
+    ensure_finite(2.0 * sum, "integrated_sachs_wolfe")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -790,6 +1035,87 @@ mod tests {
             .unwrap();
         // At high l, C_l should generally decrease (modulo BAO features)
         assert!(cl10 > cl1000, "C_10={cl10} should be > C_1000={cl1000}");
+    }
+
+    // -- distance modulus --
+
+    #[test]
+    fn test_luminosity_distance_z0() {
+        let dl = luminosity_distance(0.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(dl.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_luminosity_distance_increases() {
+        let d1 = luminosity_distance(0.5, OMEGA_M, -1.0, 0.0).unwrap();
+        let d2 = luminosity_distance(1.0, OMEGA_M, -1.0, 0.0).unwrap();
+        let d3 = luminosity_distance(2.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(d3 > d2 && d2 > d1);
+    }
+
+    #[test]
+    fn test_distance_modulus_monotonic() {
+        let m1 = distance_modulus(0.01, OMEGA_M, -1.0, 0.0).unwrap();
+        let m2 = distance_modulus(0.1, OMEGA_M, -1.0, 0.0).unwrap();
+        let m3 = distance_modulus(1.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(m3 > m2 && m2 > m1, "μ should increase with z");
+    }
+
+    #[test]
+    fn test_distance_modulus_z0_invalid() {
+        assert!(distance_modulus(0.0, OMEGA_M, -1.0, 0.0).is_err());
+        assert!(distance_modulus(-1.0, OMEGA_M, -1.0, 0.0).is_err());
+    }
+
+    // -- halofit --
+
+    #[test]
+    fn test_halofit_positive() {
+        for k in [0.01, 0.1, 1.0, 10.0] {
+            let d = halofit_nl(k, 0.0).unwrap();
+            assert!(d > 0.0, "Δ²_NL(k={k}) should be positive: {d}");
+        }
+    }
+
+    #[test]
+    fn test_halofit_increases_with_k() {
+        let d1 = halofit_nl(0.1, 0.0).unwrap();
+        let d2 = halofit_nl(1.0, 0.0).unwrap();
+        assert!(d2 > d1, "Δ²_NL should increase with k");
+    }
+
+    #[test]
+    fn test_halofit_invalid() {
+        assert!(halofit_nl(0.0, 0.0).is_err());
+        assert!(halofit_nl(-1.0, 0.0).is_err());
+        assert!(halofit_nl(f64::NAN, 0.0).is_err());
+    }
+
+    // -- sachs-wolfe --
+
+    #[test]
+    fn test_sachs_wolfe_scaling() {
+        let dt = sachs_wolfe(3e-5).unwrap();
+        assert!((dt - 1e-5).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_isw_lcdm_nonzero() {
+        let isw = integrated_sachs_wolfe(0.0, 2.0, OMEGA_M, -1.0, 0.0).unwrap();
+        assert!(isw.abs() > 1e-6, "ΛCDM ISW should be nonzero: {isw}");
+    }
+
+    #[test]
+    fn test_isw_eds_negligible() {
+        // In EdS (Ω_m=1), potentials are constant → ISW ≈ 0
+        let isw = integrated_sachs_wolfe(0.0, 2.0, 0.999, -1.0, 0.0).unwrap();
+        assert!(isw.abs() < 0.01, "EdS ISW should be ~0: {isw}");
+    }
+
+    #[test]
+    fn test_isw_invalid() {
+        assert!(integrated_sachs_wolfe(-1.0, 2.0, OMEGA_M, -1.0, 0.0).is_err());
+        assert!(integrated_sachs_wolfe(2.0, 1.0, OMEGA_M, -1.0, 0.0).is_err());
     }
 
     #[test]
