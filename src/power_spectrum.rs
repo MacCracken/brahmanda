@@ -4,9 +4,7 @@
 //! as a function of wavenumber k. Combined with the growth factor, it
 //! predicts structure at all scales and redshifts.
 
-use std::f64::consts::PI;
-
-use crate::constants::{N_S, OMEGA_B, OMEGA_M, SIGMA_8};
+use crate::constants::{N_S, OMEGA_M, SIGMA_8};
 use crate::error::{ensure_finite, require_finite, BrahmandaError};
 
 /// Eisenstein-Hu transfer function T(k) — no-wiggle approximation.
@@ -131,6 +129,7 @@ pub fn sigma_r(r_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::OMEGA_B;
 
     #[test]
     fn test_transfer_function_small_k() {
