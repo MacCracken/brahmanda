@@ -14,7 +14,7 @@ use crate::power_spectrum;
 /// Planck 2018 dimensionless Hubble parameter.
 const H: f64 = 0.674;
 
-/// Mean matter density in h² M_sun / (Mpc/h)³.
+/// Mean matter density in M_sun / (Mpc/h)³.
 fn mean_matter_density_h2() -> f64 {
     let rho_m_kg_m3 = OMEGA_M * RHO_CRIT;
     let rho_m_msun_mpc3 = rho_m_kg_m3 * (MPC_M * MPC_M * MPC_M) / M_SUN;

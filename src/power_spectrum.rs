@@ -139,8 +139,7 @@ pub fn transfer_function_eh_wiggle(
     // Eq. 6: sound horizon at drag epoch (Mpc/h)
     let s = (2.0 / (3.0 * k_eq))
         * (6.0 / r_eq).sqrt()
-        * ((1.0 + r_d).sqrt() + (r_d + r_eq).sqrt()).ln()
-        / (1.0 + (r_eq).sqrt()).ln();
+        * (((1.0 + r_d).sqrt() + (r_d + r_eq).sqrt()) / (1.0 + r_eq.sqrt())).ln();
 
     // Eq. 7: Silk damping scale (1/Mpc h)
     let k_silk = 1.6 * omega_bh2.powf(0.52) * omega_mh2.powf(0.73)
@@ -398,10 +397,10 @@ pub fn hubble_parameter_ratio(
     ensure_finite(e2.sqrt(), "hubble_parameter_ratio")
 }
 
-/// Linear growth factor for w₀w_a dark energy — numerical ODE integration.
+/// Linear growth factor for w₀w_a dark energy — CPT92 fitting formula.
 ///
-/// Uses the growth ODE: D'' + (3/a + E'/E) D'/a - (3/2) Ω_m/(a³ E²) D = 0,
-/// integrated via a midpoint approximation from high redshift.
+/// Generalizes the Carroll, Press & Turner (1992) approximation to
+/// w₀w_a dark energy by computing Ω_m(z) and Ω_DE(z) at each redshift.
 ///
 /// Returns D(z)/D(0).
 ///
@@ -570,8 +569,8 @@ pub fn angular_power_spectrum_limber(
         if chi < 1e-6 {
             return Ok(0.0);
         }
-        let k = (l_f + 0.5) / chi; // Limber: k = (l+1/2)/χ in h/Mpc
-        let k_h = k * h; // convert to h/Mpc
+        let k = (l_f + 0.5) / chi; // Limber: k = (l+1/2)/χ in Mpc⁻¹
+        let k_h = k / h; // convert physical Mpc⁻¹ → h/Mpc
 
         if k_h <= 0.0 || k_h > 100.0 {
             return Ok(0.0);
