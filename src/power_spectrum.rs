@@ -17,6 +17,18 @@ use crate::error::{ensure_finite, require_finite, BrahmandaError};
 /// * `omega_m` — Matter density parameter.
 /// * `omega_b` — Baryon density parameter.
 /// * `h` — Dimensionless Hubble parameter (H₀/100).
+///
+/// ```
+/// use brahmanda::power_spectrum::transfer_function_eh;
+///
+/// // Small k (large scales): T(k) → 1
+/// let t = transfer_function_eh(0.001, 0.315, 0.049, 0.674).unwrap();
+/// assert!(t > 0.8);
+///
+/// // Large k (small scales): suppressed
+/// let t = transfer_function_eh(1.0, 0.315, 0.049, 0.674).unwrap();
+/// assert!(t < 0.5);
+/// ```
 pub fn transfer_function_eh(
     k_mpc: f64,
     omega_m: f64,
@@ -63,6 +75,13 @@ pub fn transfer_function_eh(
 /// Primordial power spectrum: P_prim(k) ∝ k^n_s.
 ///
 /// Returns the unnormalized primordial power at wavenumber k.
+///
+/// ```
+/// use brahmanda::power_spectrum::primordial_power;
+///
+/// let p = primordial_power(1.0, 0.965).unwrap();
+/// assert!((p - 1.0).abs() < 1e-10); // k=1 → k^n_s = 1
+/// ```
 #[inline]
 pub fn primordial_power(k_mpc: f64, n_s: f64) -> Result<f64, BrahmandaError> {
     require_finite(k_mpc, "primordial_power")?;
@@ -82,6 +101,18 @@ pub fn primordial_power(k_mpc: f64, n_s: f64) -> Result<f64, BrahmandaError> {
 /// # Arguments
 /// * `z` — Redshift.
 /// * `omega_m` — Matter density parameter (at z=0).
+///
+/// ```
+/// use brahmanda::power_spectrum::growth_factor;
+///
+/// // D(z=0) = 1 by definition
+/// let d = growth_factor(0.0, 0.315).unwrap();
+/// assert!((d - 1.0).abs() < 1e-10);
+///
+/// // Structure grows: D decreases at higher z
+/// let d1 = growth_factor(1.0, 0.315).unwrap();
+/// assert!(d1 < d);
+/// ```
 pub fn growth_factor(z: f64, omega_m: f64) -> Result<f64, BrahmandaError> {
     require_finite(z, "growth_factor")?;
     require_finite(omega_m, "growth_factor")?;
@@ -114,6 +145,18 @@ pub fn growth_factor(z: f64, omega_m: f64) -> Result<f64, BrahmandaError> {
 ///
 /// This is an approximation; the exact computation requires integration
 /// over the full power spectrum with a top-hat window function.
+///
+/// ```
+/// use brahmanda::power_spectrum::sigma_r;
+///
+/// // σ(R=8, z=0) ≈ σ₈
+/// let s = sigma_r(8.0, 0.0).unwrap();
+/// assert!((s - 0.811).abs() < 0.01);
+///
+/// // Fluctuations decrease at higher z
+/// let s1 = sigma_r(8.0, 1.0).unwrap();
+/// assert!(s1 < s);
+/// ```
 pub fn sigma_r(r_mpc: f64, z: f64) -> Result<f64, BrahmandaError> {
     require_finite(r_mpc, "sigma_r")?;
     if r_mpc <= 0.0 {

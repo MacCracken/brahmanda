@@ -25,6 +25,7 @@ pub enum HubbleType {
 
 /// Structural parameters of a galaxy.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[must_use]
 pub struct GalaxyProperties {
     /// Hubble morphological type.
     pub hubble_type: HubbleType,
@@ -46,6 +47,18 @@ pub struct GalaxyProperties {
 /// * `r` — Galactocentric radius.
 /// * `r_e` — Effective (half-light) radius (same units as r).
 /// * `n` — Sersic index (must be > 0).
+///
+/// ```
+/// use brahmanda::morphology::sersic_profile;
+///
+/// // At R = R_e, the profile returns ~1.0
+/// let i = sersic_profile(1.0, 1.0, 4.0).unwrap();
+/// assert!((i - 1.0).abs() < 0.01);
+///
+/// // Intensity decreases outward
+/// let i_outer = sersic_profile(3.0, 1.0, 4.0).unwrap();
+/// assert!(i_outer < i);
+/// ```
 #[inline]
 pub fn sersic_profile(r: f64, r_e: f64, n: f64) -> Result<f64, BrahmandaError> {
     require_finite(r, "sersic_profile")?;
@@ -69,6 +82,14 @@ pub fn sersic_profile(r: f64, r_e: f64, n: f64) -> Result<f64, BrahmandaError> {
 /// # Arguments
 /// * `sigma` — Velocity dispersion (km/s).
 /// * `sigma_ref` — Reference velocity dispersion (km/s).
+///
+/// ```
+/// use brahmanda::morphology::faber_jackson_ratio;
+///
+/// // Double the velocity dispersion → 16× the luminosity
+/// let ratio = faber_jackson_ratio(400.0, 200.0).unwrap();
+/// assert!((ratio - 16.0).abs() < 1e-6);
+/// ```
 #[inline]
 pub fn faber_jackson_ratio(sigma: f64, sigma_ref: f64) -> Result<f64, BrahmandaError> {
     require_finite(sigma, "faber_jackson_ratio")?;
@@ -85,6 +106,13 @@ pub fn faber_jackson_ratio(sigma: f64, sigma_ref: f64) -> Result<f64, BrahmandaE
 ///
 /// Returns luminosity ratio L/L_ref = (v/v_ref)^alpha.
 /// Typical α ≈ 4 (B-band) or α ≈ 3.5 (infrared).
+///
+/// ```
+/// use brahmanda::morphology::tully_fisher_ratio;
+///
+/// let ratio = tully_fisher_ratio(300.0, 150.0, 4.0).unwrap();
+/// assert!((ratio - 16.0).abs() < 1e-6);
+/// ```
 #[inline]
 pub fn tully_fisher_ratio(
     v_rot: f64,

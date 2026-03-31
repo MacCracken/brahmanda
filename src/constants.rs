@@ -23,6 +23,9 @@ pub const MPC_M: f64 = 3.085_677_581e22;
 /// 1 Megaparsec in km.
 pub const MPC_KM: f64 = 3.085_677_581e19;
 
+/// 1 kiloparsec in meters.
+pub const KPC_M: f64 = 3.085_677_581e19;
+
 /// H₀ in s⁻¹.
 pub const H0_SI: f64 = H0_KM_S_MPC / MPC_KM;
 

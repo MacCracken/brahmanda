@@ -1,6 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-use brahmanda::{cosmic_web, halo, morphology, power_spectrum};
+use brahmanda::{halo, morphology, power_spectrum};
 use brahmanda::constants::*;
 
 fn bench_nfw_density(c: &mut Criterion) {

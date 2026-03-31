@@ -28,6 +28,14 @@ pub enum BrahmandaError {
 }
 
 /// Validate that a single f64 input is finite.
+///
+/// ```
+/// use brahmanda::error::require_finite;
+///
+/// assert!(require_finite(1.0, "test").is_ok());
+/// assert!(require_finite(f64::NAN, "test").is_err());
+/// assert!(require_finite(f64::INFINITY, "test").is_err());
+/// ```
 #[inline]
 pub fn require_finite(value: f64, context: &'static str) -> Result<(), BrahmandaError> {
     if value.is_finite() {
@@ -38,6 +46,13 @@ pub fn require_finite(value: f64, context: &'static str) -> Result<(), Brahmanda
 }
 
 /// Validate that all f64 inputs are finite.
+///
+/// ```
+/// use brahmanda::error::require_all_finite;
+///
+/// assert!(require_all_finite(&[1.0, 2.0, 3.0], "test").is_ok());
+/// assert!(require_all_finite(&[1.0, f64::NAN], "test").is_err());
+/// ```
 #[inline]
 pub fn require_all_finite(values: &[f64], context: &'static str) -> Result<(), BrahmandaError> {
     for &v in values {
@@ -47,6 +62,13 @@ pub fn require_all_finite(values: &[f64], context: &'static str) -> Result<(), B
 }
 
 /// Validate that a computed result is finite.
+///
+/// ```
+/// use brahmanda::error::ensure_finite;
+///
+/// assert_eq!(ensure_finite(42.0, "test").unwrap(), 42.0);
+/// assert!(ensure_finite(f64::INFINITY, "test").is_err());
+/// ```
 #[inline]
 pub fn ensure_finite(value: f64, context: &'static str) -> Result<f64, BrahmandaError> {
     if value.is_finite() {

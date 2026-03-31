@@ -30,8 +30,18 @@ pub enum WebEnvironment {
 /// - 0 above → Void
 ///
 /// # Arguments
-/// * `lambda` — Three eigenvalues of the tidal tensor [λ₁, λ₂, λ₃], sorted descending.
+/// * `lambda` — Three eigenvalues of the tidal tensor [λ₁, λ₂, λ₃] (order does not matter).
 /// * `threshold` — Classification threshold δ_th (typically 0.0 or density-dependent).
+///
+/// ```
+/// use brahmanda::cosmic_web::{classify_web_environment, WebEnvironment};
+///
+/// let env = classify_web_environment(&[2.0, 1.0, 0.5], 0.0).unwrap();
+/// assert_eq!(env, WebEnvironment::Node);
+///
+/// let env = classify_web_environment(&[-0.1, -0.5, -0.8], 0.0).unwrap();
+/// assert_eq!(env, WebEnvironment::Void);
+/// ```
 pub fn classify_web_environment(
     lambda: &[f64; 3],
     threshold: f64,
@@ -53,6 +63,13 @@ pub fn classify_web_environment(
 /// Void radius from void volume (Mpc).
 ///
 /// Assumes spherical void: R = (3V / 4π)^(1/3).
+///
+/// ```
+/// use brahmanda::cosmic_web::void_radius_mpc;
+///
+/// let r = void_radius_mpc(1000.0).unwrap();
+/// assert!(r > 5.0 && r < 7.0); // ~6.2 Mpc
+/// ```
 #[inline]
 pub fn void_radius_mpc(volume_mpc3: f64) -> Result<f64, BrahmandaError> {
     require_finite(volume_mpc3, "void_radius_mpc")?;
@@ -72,6 +89,16 @@ pub fn void_radius_mpc(volume_mpc3: f64) -> Result<f64, BrahmandaError> {
 /// δ > 0 for overdense regions (nodes, filaments).
 /// δ < 0 for underdense regions (voids).
 /// δ = 0 for mean density.
+///
+/// ```
+/// use brahmanda::cosmic_web::density_contrast;
+///
+/// let delta = density_contrast(2.0, 1.0).unwrap();
+/// assert!((delta - 1.0).abs() < 1e-10); // overdense
+///
+/// let delta = density_contrast(0.5, 1.0).unwrap();
+/// assert!((delta - (-0.5)).abs() < 1e-10); // underdense
+/// ```
 #[inline]
 pub fn density_contrast(rho: f64, rho_mean: f64) -> Result<f64, BrahmandaError> {
     require_finite(rho, "density_contrast")?;
@@ -90,6 +117,18 @@ pub fn density_contrast(rho: f64, rho_mean: f64) -> Result<f64, BrahmandaError> 
 ///
 /// Returns the excess probability of finding a galaxy pair at separation r
 /// relative to a uniform distribution.
+///
+/// ```
+/// use brahmanda::cosmic_web::two_point_correlation_power_law;
+///
+/// // At r = r₀, ξ = 1
+/// let xi = two_point_correlation_power_law(5.0, 5.0, 1.8).unwrap();
+/// assert!((xi - 1.0).abs() < 1e-10);
+///
+/// // Correlation decreases with distance
+/// let xi_far = two_point_correlation_power_law(10.0, 5.0, 1.8).unwrap();
+/// assert!(xi_far < xi);
+/// ```
 #[inline]
 pub fn two_point_correlation_power_law(
     r_mpc: f64,

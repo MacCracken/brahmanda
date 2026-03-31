@@ -6,7 +6,7 @@ use std::f64::consts::PI;
 
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{G, M_SUN, RHO_CRIT};
+use crate::constants::{G, KPC_M, M_SUN, RHO_CRIT};
 use crate::error::{ensure_finite, require_finite, BrahmandaError};
 
 /// NFW (Navarro-Frenk-White) dark matter halo density profile.
@@ -17,6 +17,14 @@ use crate::error::{ensure_finite, require_finite, BrahmandaError};
 /// * `r` — Radius from halo center (kpc).
 /// * `rho_s` — Characteristic density (M_sun/kpc³).
 /// * `r_s` — Scale radius (kpc).
+///
+/// ```
+/// use brahmanda::halo::nfw_density;
+///
+/// let d_inner = nfw_density(10.0, 1e7, 20.0).unwrap();
+/// let d_outer = nfw_density(100.0, 1e7, 20.0).unwrap();
+/// assert!(d_inner > d_outer); // density decreases outward
+/// ```
 #[inline]
 pub fn nfw_density(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaError> {
     require_finite(r, "nfw_density")?;
@@ -34,6 +42,14 @@ pub fn nfw_density(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaError> 
 /// NFW enclosed mass within radius r.
 ///
 /// M(r) = 4π ρ_s r_s³ [ln(1 + r/r_s) - (r/r_s)/(1 + r/r_s)]
+///
+/// ```
+/// use brahmanda::halo::nfw_enclosed_mass;
+///
+/// let m1 = nfw_enclosed_mass(10.0, 1e7, 20.0).unwrap();
+/// let m2 = nfw_enclosed_mass(100.0, 1e7, 20.0).unwrap();
+/// assert!(m2 > m1); // enclosed mass increases with radius
+/// ```
 #[inline]
 pub fn nfw_enclosed_mass(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaError> {
     require_finite(r, "nfw_enclosed_mass")?;
@@ -60,6 +76,13 @@ pub fn nfw_enclosed_mass(r: f64, rho_s: f64, r_s: f64) -> Result<f64, BrahmandaE
 /// * `r_kpc` — Radius in kpc.
 /// * `rho_s_msun_kpc3` — Characteristic density in M_sun/kpc³.
 /// * `r_s_kpc` — Scale radius in kpc.
+///
+/// ```
+/// use brahmanda::halo::nfw_circular_velocity;
+///
+/// let v = nfw_circular_velocity(8.0, 1e7, 30.0).unwrap();
+/// assert!(v > 0.0); // positive velocity
+/// ```
 pub fn nfw_circular_velocity(
     r_kpc: f64,
     rho_s_msun_kpc3: f64,
@@ -68,7 +91,7 @@ pub fn nfw_circular_velocity(
     let m = nfw_enclosed_mass(r_kpc, rho_s_msun_kpc3, r_s_kpc)?;
     // Convert: M in M_sun, r in kpc → v in km/s
     let m_kg = m * M_SUN;
-    let r_m = r_kpc * 3.085_677_581e19; // kpc → m
+    let r_m = r_kpc * KPC_M;
     let v_ms = (G * m_kg / r_m).sqrt();
     ensure_finite(v_ms / 1e3, "nfw_circular_velocity") // m/s → km/s
 }
@@ -78,6 +101,14 @@ pub fn nfw_circular_velocity(
 /// R_vir = [3 M_vir / (4π × Δ_vir × ρ_crit)]^(1/3)
 ///
 /// Uses Δ_vir = 200 (standard definition).
+///
+/// ```
+/// use brahmanda::halo::virial_radius;
+///
+/// // Milky Way-mass halo: ~200-300 kpc
+/// let r = virial_radius(1e12).unwrap();
+/// assert!(r > 150.0 && r < 350.0);
+/// ```
 pub fn virial_radius(m_vir_msun: f64) -> Result<f64, BrahmandaError> {
     require_finite(m_vir_msun, "virial_radius")?;
     if m_vir_msun <= 0.0 {
@@ -88,7 +119,7 @@ pub fn virial_radius(m_vir_msun: f64) -> Result<f64, BrahmandaError> {
     let delta = 200.0;
     let m_kg = m_vir_msun * M_SUN;
     let r_m = (3.0 * m_kg / (4.0 * PI * delta * RHO_CRIT)).cbrt();
-    let r_kpc = r_m / 3.085_677_581e19;
+    let r_kpc = r_m / KPC_M;
     ensure_finite(r_kpc, "virial_radius")
 }
 
@@ -97,6 +128,13 @@ pub fn virial_radius(m_vir_msun: f64) -> Result<f64, BrahmandaError> {
 /// Typical: c ≈ 5–15 for halos of 10¹¹–10¹⁵ M_sun.
 /// Uses Dutton & Maccio (2014) fitting formula:
 /// log10(c) = 0.905 - 0.101 × log10(M_vir / (10¹² h⁻¹ M_sun))
+///
+/// ```
+/// use brahmanda::halo::concentration_dutton_maccio;
+///
+/// let c = concentration_dutton_maccio(1e12).unwrap();
+/// assert!(c > 5.0 && c < 15.0);
+/// ```
 pub fn concentration_dutton_maccio(m_vir_msun: f64) -> Result<f64, BrahmandaError> {
     require_finite(m_vir_msun, "concentration_dutton_maccio")?;
     if m_vir_msun <= 0.0 {
@@ -112,6 +150,7 @@ pub fn concentration_dutton_maccio(m_vir_msun: f64) -> Result<f64, BrahmandaErro
 
 /// Halo properties bundle.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[must_use]
 pub struct HaloProperties {
     /// Virial mass (solar masses).
     pub m_vir_msun: f64,
@@ -125,6 +164,14 @@ pub struct HaloProperties {
 
 impl HaloProperties {
     /// Compute halo properties from virial mass.
+    ///
+    /// ```
+    /// use brahmanda::halo::HaloProperties;
+    ///
+    /// let halo = HaloProperties::from_mass(1e12).unwrap();
+    /// assert!(halo.r_vir_kpc > 150.0 && halo.r_vir_kpc < 350.0);
+    /// assert!(halo.concentration > 5.0 && halo.concentration < 15.0);
+    /// ```
     pub fn from_mass(m_vir_msun: f64) -> Result<Self, BrahmandaError> {
         require_finite(m_vir_msun, "HaloProperties::from_mass")?;
         let r_vir = virial_radius(m_vir_msun)?;
