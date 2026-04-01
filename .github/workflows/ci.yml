@@ -7,33 +7,35 @@ on:
     branches: [main]
   workflow_call:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -Dwarnings
+  RUST_BACKTRACE: 1
 
 jobs:
   check:
-    name: Format & Lint
+    name: Check + Clippy + Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-features --all-targets -- -D warnings
+      - run: cargo check --all-features
 
   security:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
 
   deny:
     name: Dependency Check
@@ -43,22 +45,17 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   test:
-    name: Test (${{ matrix.os }}, ${{ matrix.features }})
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        features:
-          - --all-features
-          - --no-default-features
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Test
-        run: cargo test ${{ matrix.features }}
-      - name: Doc tests
-        run: cargo test --doc ${{ matrix.features }}
+      - run: cargo test --all-features
+      - run: cargo test --no-default-features
+      - run: cargo test --doc
 
   msrv:
     name: MSRV (1.89)
@@ -66,8 +63,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.89.0
-      - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-features
+      - run: cargo test --all-features
 
   coverage:
     name: Coverage
@@ -75,10 +72,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v2
-      - name: Generate coverage
-        run: cargo llvm-cov --all-features --fail-under-lines 85
+      - run: cargo install cargo-llvm-cov --locked
+      - run: cargo llvm-cov --all-features --fail-under-lines 85 --lcov --output-path lcov.info
+      - uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   doc:
     name: Documentation
@@ -86,6 +86,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build docs
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
