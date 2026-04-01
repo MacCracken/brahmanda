@@ -66,11 +66,20 @@ pub fn transfer_function_eh(
         omega_m * h * (alpha_gamma + (1.0 - alpha_gamma) / (1.0 + (0.43 * k_mpc * s).powi(4)));
 
     // BBKS transfer function with effective shape
+    if gamma_eff.abs() < 1e-30 {
+        return Err(BrahmandaError::Computation(
+            "transfer_function_eh: effective shape parameter is zero".to_string(),
+        ));
+    }
     let q = k_mpc * theta * theta / gamma_eff;
-    let t = (1.0 + 3.89 * q + (16.1 * q).powi(2) + (5.46 * q).powi(3) + (6.71 * q).powi(4))
-        .powf(-0.25)
-        * (2.34 * q).ln_1p()
-        / (2.34 * q);
+    // Guard q → 0: lim_{q→0} ln(1+2.34q)/(2.34q) = 1, and polynomial → 1
+    let t = if q < 1e-10 {
+        1.0
+    } else {
+        (1.0 + 3.89 * q + (16.1 * q).powi(2) + (5.46 * q).powi(3) + (6.71 * q).powi(4)).powf(-0.25)
+            * (2.34 * q).ln_1p()
+            / (2.34 * q)
+    };
 
     ensure_finite(t, "transfer_function_eh")
 }
@@ -283,6 +292,7 @@ pub fn growth_factor(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
 /// let p = linear_power_spectrum(0.1, 0.0, &cosmo).unwrap();
 /// assert!(p > 0.0);
 /// ```
+#[must_use = "returns the linear power spectrum P(k,z)"]
 pub fn linear_power_spectrum(k_mpc: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(k_mpc, "linear_power_spectrum")?;
     require_finite(z, "linear_power_spectrum")?;
@@ -351,7 +361,15 @@ pub fn sigma_r_filter(
     let h = cosmo.h;
 
     let ln_k_min = -4.0_f64 * std::f64::consts::LN_10; // ln(1e-4)
-    let ln_k_max = (100.0_f64).ln();
+    // For SharpK, the window is exactly zero above k=1/R, so truncate there
+    let ln_k_max = match filter {
+        FilterFunction::SharpK => (1.0 / r_mpc).ln(),
+        _ => (100.0_f64).ln(),
+    };
+
+    if ln_k_min >= ln_k_max {
+        return Ok(0.0);
+    }
 
     let integrand = |u: f64| -> f64 {
         let k = u.exp();
@@ -653,6 +671,7 @@ pub fn distance_modulus(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError
 /// let da = angular_diameter_distance(1.0, &cosmo).unwrap();
 /// assert!(da > 1000.0 && da < 2500.0);
 /// ```
+#[must_use = "returns the angular diameter distance"]
 pub fn angular_diameter_distance(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     let chi = comoving_distance(z, cosmo)?;
     ensure_finite(chi / (1.0 + z), "angular_diameter_distance")
@@ -668,6 +687,7 @@ pub fn angular_diameter_distance(z: f64, cosmo: &Cosmology) -> Result<f64, Brahm
 /// let dv = comoving_volume_element(1.0, &cosmo).unwrap();
 /// assert!(dv > 0.0);
 /// ```
+#[must_use = "returns the comoving volume element"]
 pub fn comoving_volume_element(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(z, "comoving_volume_element")?;
     if z < 0.0 {
@@ -682,7 +702,12 @@ pub fn comoving_volume_element(z: f64, cosmo: &Cosmology) -> Result<f64, Brahman
     ensure_finite(c_over_h0 * chi * chi / e, "comoving_volume_element")
 }
 
-/// Lookback time t_lb(z) in Gyr.
+/// Lookback time t_lb(z) in Gyr — how far back in time we observe redshift z.
+///
+/// t_lb(z) = (1/H₀) ∫₀ᶻ dz' / ((1+z') E(z'))
+///
+/// This is the elapsed time between redshift z and today (z=0).
+/// Related to age: age(z) + t_lb(z) = age(0).
 ///
 /// ```
 /// use brahmanda::Cosmology;
@@ -692,6 +717,7 @@ pub fn comoving_volume_element(z: f64, cosmo: &Cosmology) -> Result<f64, Brahman
 /// let t = lookback_time(1.0, &cosmo).unwrap();
 /// assert!(t > 6.0 && t < 10.0);
 /// ```
+#[must_use = "returns the lookback time in Gyr"]
 pub fn lookback_time(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(z, "lookback_time")?;
     if z < 0.0 {
@@ -725,7 +751,12 @@ pub fn lookback_time(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     ensure_finite(h0_inv_gyr * sum, "lookback_time")
 }
 
-/// Age of the universe at redshift z in Gyr.
+/// Age of the universe at redshift z in Gyr — cosmic time elapsed since the Big Bang.
+///
+/// t(z) = (1/H₀) ∫_z^∞ dz' / ((1+z') E(z'))
+///
+/// At z=0 this gives the current age (~13.8 Gyr for Planck 2018 ΛCDM).
+/// Related to lookback time: age(z) + t_lb(z) = age(0).
 ///
 /// ```
 /// use brahmanda::Cosmology;
@@ -735,6 +766,7 @@ pub fn lookback_time(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
 /// let age = age_of_universe(0.0, &cosmo).unwrap();
 /// assert!(age > 12.0 && age < 15.0);
 /// ```
+#[must_use = "returns the age of the universe in Gyr"]
 pub fn age_of_universe(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(z, "age_of_universe")?;
     if z < 0.0 {
@@ -781,6 +813,7 @@ pub fn age_of_universe(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError>
 /// let f = growth_rate(0.0, &cosmo).unwrap();
 /// assert!(f > 0.4 && f < 0.7);
 /// ```
+#[must_use = "returns the linear growth rate f(z)"]
 pub fn growth_rate(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
     require_finite(z, "growth_rate")?;
     if z < -1.0 {
@@ -789,11 +822,13 @@ pub fn growth_rate(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
         ));
     }
 
-    let eps = 1e-4;
-    let d_hi = growth_factor_w(z + eps, cosmo)?;
-    let d_lo = growth_factor_w((z - eps).max(0.0), cosmo)?;
-    let dz_eff = if z < eps { z + eps } else { 2.0 * eps };
-    let dlnd_dz = (d_hi.ln() - d_lo.ln()) / dz_eff;
+    // Adaptive epsilon for relative precision across all z
+    let eps = (z * 1e-3).max(1e-4);
+    let z_lo = (z - eps).max(0.0);
+    let z_hi = z + eps;
+    let d_hi = growth_factor_w(z_hi, cosmo)?;
+    let d_lo = growth_factor_w(z_lo, cosmo)?;
+    let dlnd_dz = (d_hi.ln() - d_lo.ln()) / (z_hi - z_lo);
     let f = -(1.0 + z) * dlnd_dz;
     ensure_finite(f, "growth_rate")
 }
@@ -801,8 +836,13 @@ pub fn growth_rate(z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
 /// Effective spectral index n_eff at scale R (Mpc/h).
 ///
 /// n_eff = -2 × d ln σ(R) / d ln R - 3
+///
+/// Characterizes the local slope of the matter power spectrum at scale R.
+/// Used internally by Halofit (Smith et al. 2003) to set the nonlinear
+/// fitting coefficients. Computed via finite-difference of σ(R).
 fn effective_spectral_index(r_mpc: f64, z: f64, cosmo: &Cosmology) -> Result<f64, BrahmandaError> {
-    let dr = r_mpc * 0.01;
+    // Adaptive step: 0.1% of R, clamped to avoid underflow at extreme scales
+    let dr = (r_mpc * 1e-3).clamp(1e-6, 1.0);
     let s_lo = sigma_r(r_mpc - dr, z, cosmo)?;
     let s_hi = sigma_r(r_mpc + dr, z, cosmo)?;
     let dlns_dlnr = (s_hi.ln() - s_lo.ln()) / ((r_mpc + dr).ln() - (r_mpc - dr).ln());
@@ -1425,5 +1465,96 @@ mod tests {
         let p0 = linear_power_spectrum(0.1, 0.0, &c).unwrap();
         let p1 = linear_power_spectrum(0.1, 1.0, &c).unwrap();
         assert!(p0 > p1);
+    }
+
+    #[test]
+    fn test_linear_power_spectrum_small_k() {
+        let c = cosmo();
+        // P(k) should be positive and finite at very small k
+        let p = linear_power_spectrum(1e-3, 0.0, &c).unwrap();
+        assert!(p > 0.0 && p.is_finite());
+    }
+
+    #[test]
+    fn test_linear_power_spectrum_invalid() {
+        let c = cosmo();
+        assert!(linear_power_spectrum(0.0, 0.0, &c).is_err());
+        assert!(linear_power_spectrum(-1.0, 0.0, &c).is_err());
+        assert!(linear_power_spectrum(f64::NAN, 0.0, &c).is_err());
+    }
+
+    // -- sigma_r_filter --
+
+    #[test]
+    fn test_sigma_r_filter_gaussian() {
+        let c = cosmo();
+        let s_th = sigma_r_filter(8.0, 0.0, &c, crate::FilterFunction::TopHat).unwrap();
+        let s_g = sigma_r_filter(8.0, 0.0, &c, crate::FilterFunction::Gaussian).unwrap();
+        // Gaussian window is narrower → less power → smaller sigma at same R
+        assert!(
+            s_g < s_th,
+            "Gaussian sigma={s_g} should be < TopHat sigma={s_th}"
+        );
+        assert!(s_g > 0.0);
+    }
+
+    #[test]
+    fn test_sigma_r_filter_sharpk() {
+        let c = cosmo();
+        let s_th = sigma_r_filter(8.0, 0.0, &c, crate::FilterFunction::TopHat).unwrap();
+        let s_sk = sigma_r_filter(8.0, 0.0, &c, crate::FilterFunction::SharpK).unwrap();
+        // Sharp-k cuts off at k=1/R so captures less power
+        assert!(s_sk > 0.0);
+        // Both should be finite and of similar order
+        assert!(
+            s_sk / s_th > 0.1 && s_sk / s_th < 10.0,
+            "SharpK/TopHat ratio = {}",
+            s_sk / s_th
+        );
+    }
+
+    // -- edge cases --
+
+    #[test]
+    fn test_lookback_time_high_z() {
+        let c = cosmo();
+        let t = lookback_time(100.0, &c).unwrap();
+        let age = age_of_universe(0.0, &c).unwrap();
+        // Lookback to z=100 should be most of the age of the universe
+        assert!(t > 0.9 * age, "t_lb(z=100)={t} should be ~age={age}");
+    }
+
+    #[test]
+    fn test_growth_rate_nan_rejected() {
+        let c = cosmo();
+        assert!(growth_rate(-2.0, &c).is_err());
+        assert!(growth_rate(f64::NAN, &c).is_err());
+    }
+
+    #[test]
+    fn test_comoving_volume_element_invalid() {
+        let c = cosmo();
+        assert!(comoving_volume_element(-1.0, &c).is_err());
+        assert!(comoving_volume_element(f64::NAN, &c).is_err());
+    }
+
+    #[test]
+    fn test_lookback_time_invalid() {
+        let c = cosmo();
+        assert!(lookback_time(-1.0, &c).is_err());
+    }
+
+    #[test]
+    fn test_age_of_universe_invalid() {
+        let c = cosmo();
+        assert!(age_of_universe(-1.0, &c).is_err());
+    }
+
+    #[test]
+    fn test_transfer_function_eh_small_k_guard() {
+        // Very small k should still work (q → 0 guard)
+        let c = cosmo();
+        let t = transfer_function_eh(1e-6, c.omega_m, c.omega_b, c.h).unwrap();
+        assert!(t > 0.9 && t <= 1.01, "T(k→0) = {t}");
     }
 }

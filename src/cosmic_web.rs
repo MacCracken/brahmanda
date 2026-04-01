@@ -493,6 +493,7 @@ pub fn minkowski_functionals(
 /// Complementary error function approximation.
 ///
 /// erfc(x) = 1 - erf(x), using Abramowitz & Stegun 7.1.26.
+/// Maximum absolute error ~1.5e-7.
 fn erfc_approx(x: f64) -> f64 {
     if x < 0.0 {
         return 2.0 - erfc_approx(-x);

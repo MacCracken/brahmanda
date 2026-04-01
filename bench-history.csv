@@ -1,0 +1,6 @@
+timestamp,commit,branch,benchmark,time_ns,unit
+2026-04-01T01:22:28Z,c031b0e,main,nfw_density,2.9558,ns
+2026-04-01T01:22:28Z,c031b0e,main,sersic_profile,21.827,ns
+2026-04-01T01:22:28Z,c031b0e,main,growth_factor,33.577,ns
+2026-04-01T01:22:28Z,c031b0e,main,transfer_function_eh,74.505,ns
+2026-04-01T01:22:28Z,c031b0e,main,HaloProperties::from_mass,51.330,ns

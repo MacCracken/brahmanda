@@ -638,9 +638,9 @@ pub fn sham_stellar_mass(
     }
 
     if n_halo <= 0.0 {
-        return Err(BrahmandaError::Computation(
-            "sham_stellar_mass: halo cumulative density is zero".to_string(),
-        ));
+        return Err(BrahmandaError::Computation(format!(
+            "sham_stellar_mass(m={m_halo_msun:.2e}, z={z}): halo cumulative density is zero"
+        )));
     }
 
     let mut lo = 6.0_f64;

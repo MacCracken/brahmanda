@@ -13,28 +13,139 @@
 
 hisab-mimamsa (unified::scale_bridge Scale 5), kiran/joshua (galaxy simulation), agnosai (cosmological reasoning)
 
-## Architecture
+## Key Design Decisions
 
-- `src/cosmology.rs` — `Cosmology` struct (Planck 2018, WMAP9 presets), `FilterFunction` enum, A_s normalization cache
-- `src/error.rs` — `BrahmandaError` enum with `thiserror`, input/output validation helpers
-- `src/constants.rs` — Physical constants only (C, G, ℏ, k_B, M_sun, Mpc, kpc) — cosmological params live in `Cosmology`
-- `src/morphology.rs` — Galaxy classification, Sersic profile, Faber-Jackson, Tully-Fisher, mass-metallicity, Madau-Dickinson SFR, stellar mass density
-- `src/halo.rs` — NFW dark matter halos, virial radius, concentration, circular velocity, Press-Schechter / Sheth-Tormen / Tinker08 mass functions, Mo-White / ST / Tinker10 bias, mass accretion history (Wechsler, McBride), SHAM
-- `src/cosmic_web.rs` — Tidal tensor classification, density contrast, correlation function, HSW void profile, void excursion set, Hessian morphology, filamentarity, Minkowski functionals
-- `src/power_spectrum.rs` — Transfer function (no-wiggle + BAO), linear P(k), exact σ(R) with filter functions, growth factor & rate, dark energy w(z), distances (comoving, luminosity, angular diameter), comoving volume, lookback time, age of universe, angular C_l, Halofit nonlinear P(k), distance modulus, Sachs-Wolfe (ordinary + ISW)
-- `src/logging.rs` — tracing-subscriber init (feature-gated)
+- All cosmological functions take `&Cosmology` — never hardcode parameters
+- Physical constants (C, G, M_sun) live in `constants.rs`; cosmological parameters live in `Cosmology` struct
+- Exact numerical integration via `hisab::calc::integral_adaptive_simpson` for sigma(R) and normalization
+- Power spectrum amplitude A_s cached per `Cosmology` instance via `OnceLock`
+- Pure math functions (NFW, Sersic, classification) take only physics inputs, no cosmology context
 
-## Dependencies
+## Development Process
 
-- **hisab** — numerical integration (adaptive Simpson), interpolation, linear algebra
-- **serde** — serialization
-- **thiserror** — error handling
-- **tracing** — structured logging
+### P(-1): Scaffold Hardening (before any new features)
 
-## Roadmap
+0. Read roadmap, CHANGELOG, and open issues — know what was intended before auditing what was built
+1. Test + benchmark sweep of existing code
+2. Cleanliness check: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
+3. Get baseline benchmarks (`./scripts/bench-history.sh`)
+4. Internal deep review — gaps, optimizations, security, logging/errors, docs
+5. External research — domain completeness, missing capabilities, best practices, world-class accuracy
+6. Cleanliness check — must be clean after review
+7. Additional tests/benchmarks from findings
+8. Post-review benchmarks — prove the wins
+9. Repeat if heavy
 
-Future work lives in `docs/development/roadmap.md` (P7–P10 + quality track).
+### Work Loop / Working Loop (continuous)
 
-### Integration: hisab-mimamsa Scale 5
+1. Work phase — new features, roadmap items, bug fixes
+2. Cleanliness check: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
+3. Test + benchmark additions for new code
+4. Run benchmarks (`./scripts/bench-history.sh`)
+5. Internal review — performance, memory, security, throughput, correctness
+6. Cleanliness check — must be clean after audit
+7. Deeper tests/benchmarks from audit observations
+8. Run benchmarks again — prove the wins
+9. If audit heavy → return to step 5
+10. Documentation — update CHANGELOG, roadmap, docs
+11. Version check — VERSION, Cargo.toml, recipe all in sync
+12. Return to step 1
 
-brahmanda provides galactic density fields, cosmic web classification, and structure formation data for hisab-mimamsa's `unified::scale_bridge::bridge_scale_5()` (galactic structure → civilizational personality fields via bhava).
+### Task Sizing
+
+- **Low/Medium effort**: Batch freely — multiple items per work loop cycle
+- **Large effort**: Small bites only — break into sub-tasks, verify each before moving to the next. Never batch large items together
+- **If unsure**: Treat it as large. Smaller bites are always safer than overcommitting
+
+### Refactoring
+
+- Refactor when the code tells you to — duplication, unclear boundaries, performance bottlenecks
+- Never refactor speculatively. Wait for the third instance before extracting an abstraction
+- Refactoring is part of the work loop, not a separate phase. If a review (step 5) reveals structural issues, refactor before moving to step 6
+- Every refactor must pass the same cleanliness + benchmark gates as new code
+
+### Key Principles
+
+- **Never skip benchmarks.** Numbers don't lie. The CSV history is the proof.
+- **Tests + benchmarks are the way.** Minimum 80%+ coverage target.
+- **Own the stack.** If an AGNOS crate wraps an external lib, depend on the AGNOS crate.
+- **No magic.** Every operation is measurable, auditable, traceable.
+- **`#[non_exhaustive]`** on all public enums.
+- **`#[must_use]`** on all pure functions.
+- **`#[inline]`** on hot-path functions.
+- **`write!` over `format!`** — avoid temporary allocations.
+- **Cow over clone** — borrow when you can, allocate only when you must.
+- **Vec arena over HashMap** — when indices are known, direct access beats hashing.
+- **Feature-gate optional deps** — consumers pull only what they need.
+- **tracing on all operations** — structured logging for audit trail.
+
+## DO NOT
+
+- **Do not commit or push** — the user handles all git operations (commit, push, tag)
+- **NEVER use `gh` CLI** — use `curl` to GitHub API only
+- Do not add unnecessary dependencies — keep it lean
+- Do not `unwrap()` or `panic!()` in library code
+- Do not skip benchmarks before claiming performance improvements
+- Do not commit `target/` or `Cargo.lock` (library crates only)
+
+## Documentation Structure
+
+```
+Root files (required):
+  README.md          — quick start, features, dependency stack, consumers, license
+  CHANGELOG.md       — per-version changes (Added/Changed/Fixed/Removed)
+  CLAUDE.md          — this file (development process, principles, DO NOTs)
+  CONTRIBUTING.md    — fork, branch, make check, PR workflow
+  SECURITY.md        — supported versions, scope, reporting
+  CODE_OF_CONDUCT.md — Contributor Covenant
+  LICENSE            — GPL-3.0
+
+docs/ (required):
+  architecture/
+    overview.md      — module map, data flow, consumers, dependency stack
+  development/
+    roadmap.md       — backlog, future features (demand-gated)
+
+docs/ (when earned — not scaffolded empty):
+  adr/
+    NNN-title.md     — architectural decision records (when non-obvious choices are made)
+  development/
+    threat-model.md  — attack surface, mitigations (when security-relevant)
+    dependency-watch.md — deps to monitor for updates/CVEs
+  guides/
+    usage.md         — patterns, philosophy, code examples
+    testing.md       — test count, coverage, testing patterns
+```
+
+## CHANGELOG Format
+
+Follow [Keep a Changelog](https://keepachangelog.com/):
+
+```markdown
+# Changelog
+
+## [Unreleased]
+### Added — new features
+### Changed — changes to existing features
+### Fixed — bug fixes
+### Removed — removed features
+### Security — vulnerability fixes
+### Performance — benchmark-proven improvements (include numbers)
+
+## [X.Y.Z] - YYYY-MM-DD
+### Added
+- **module_name** — what was added and why
+### Changed
+- item: old behavior → new behavior
+### Fixed
+- issue description (root cause → fix)
+### Performance
+- benchmark_name: before → after (−XX%)
+```
+
+Rules:
+- Every PR/commit that changes behavior gets a CHANGELOG entry
+- Performance claims MUST include benchmark numbers
+- Breaking changes get a **Breaking** section with migration guide
+- Group by module when multiple changes in one release
+- Link to ADR if a change was driven by an architectural decision
